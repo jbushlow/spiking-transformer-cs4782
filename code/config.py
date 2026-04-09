@@ -1,7 +1,7 @@
 class GPTConfig:
     def __init__(self, **kwargs):
         self.vocab_size = 256
-        self.ctx_len = kwargs.get('ctx_len', 1024) #From git repo
+        self.ctx_len = kwargs.get('ctx_len', 1024) #From paper
         #46M parameter model (from paper)
         self.n_embd = kwargs.get('n_embd', 512)
         self.n_ffn = kwargs.get('n_ffn', 4 * kwargs.get('n_embd', 512)) 
