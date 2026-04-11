@@ -97,7 +97,49 @@ class SpikingRWKV(nn.Module):
 
     def _wkv_recurrence(self,k,v):
         B, T, C = k.shape
+        # per channel decay from time decay
+        w = -torch.exp(self.time_decay).view(1, C)
 
+        # per channel bias for current time step from time first
+        u = self.time_first.view(1, C)
+
+        # running weighted sum of past values
+        aa = torch.zeros(B, C, device=k.device, dtype=k.dtype)
+
+        # running weighted sum of past weights
+        bb = torch.zeros(B, C, device=k.device, dtype=k.dtype)
+
+        # running normalization helper for stability
+        pp = torch.full((B, C), -1e30, device=k.device, dtype=k.dtype)
+
+        # stores output at each timestep
+        outputs = []
+
+        for t in range(T):
+            kk = k[:, t, :]
+            vv = v[:, t, :]
+
+            ww = u + kk
+            p = torch.maximum(pp, ww)
+            e1 = torch.exp(pp - p)
+            e2 = torch.exp(ww - p)
+
+            a = e1 * aa + e2 * vv
+            b = e1 * bb + e2
+            y = a / (b + 1e-9)
+            outputs.append(y)
+
+            ww = pp + w
+            p = torch.maximum(ww, kk)
+            e1 = torch.exp(ww - p)
+            e2 = torch.exp(kk - p)
+
+            aa = e1 * aa + e2 * vv
+            bb = e1 * bb + e2
+            pp = p
+
+        return torch.stack(outputs, dim=1)
+    
     def _apply_spike(self,x):
         x = x.permute(1,0,2)
         x = self.spike(x)
