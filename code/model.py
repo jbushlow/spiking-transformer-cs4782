@@ -153,17 +153,65 @@ class SpikingRWKV(nn.Module):
         return self._apply_spike(out)
 
 class SpikingRFFN(nn.Module):
-    # NEED TO FINISH THIS 
+   
     def __init__(self, config, layer_id):
         super().__init__()
+        self.layer_id = layer_id
+        self.ctx_len = config.ctx_len
+        self.n_embd = config.n_embd
+
+        self._init_rffn_params(config,layer_id)
+        self._init_layers(config)
+
+
+    def _init_layers(self,config):
+        self.time_shift = nn.ZeroPad2d((0, 0, 1, -1))
+
+        hidden_sz = 4 * self.n_embd
+        self.key = nn.Linear(self.n_embd, hidden_sz, bias=False)
+        self.receptance = nn.Linear(self.n_embd, self.n_embd, bias=False)
+        self.value = nn.Linear(hidden_sz, self.n_embd, bias=False)
+
+        self.spike = neuron.MultiStepLIFNode(
+            tau=2.0,
+            surrogate_function=surrogate.ATan(alpha=config.lif_alpha),
+            v_threshold=config.lif_threshold,
+            backend="torch",
+        )
+    
+    
+    def _init_rffn_params(self,config,layer_id):
         ratio_1_to_almost0 = 1 - (layer_id/config.n_layer)
+
+        x = torch.ones(1,1,self.n_embd)
+        for i in range(self.n_embd):
+            x[0, 0, i] = i / self.n_embd
 
         self.time_mix_k = nn.Parameter(torch.pow(x, ratio_1_to_almost0))
         self.time_mix_r = nn.Parameter(torch.pow(x, ratio_1_to_almost0))
-        self.time_shift = nn.ZeroPad2d((0, 0, 1, -1))
+        
+    def _time_mix_inputs(self,x):
+        xx = self.time_shift(x)
+        xk = x * self.time_mix_k + xx * (1 - self.time_mix_k)
+        xr = x * self.time_mix_r + xx *(1- self.time_mix_r)
+        return xk,xr
+
+    def _compute_rffn(self,xk,xr):
+        k = self.key(xk)
+        k = torch.square(torch.relu(k))
+        kv = self.value(k)
+        r = torch.sigmoid(self.receptance(xr))
+        return r*kv
+
+    def _apply_spike(self,x):
+        x = x.permute(1,0,2)
+        x = self.spike(x)
+        return x.permute(1,0,2)
+
 
     def forward(self,x):
-        out = torch.sigmoid(self.receptance(xr))*kv
+        xk,xr = self._time_mix_inputs(x)
+        out =  self._compute_rffn(xk,xr)
         out = self.spike(out.permute(1,0,2)).permute(1,0,2)
 
 class SpikeBlock(nn.Module):
