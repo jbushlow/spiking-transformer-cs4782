@@ -72,7 +72,7 @@ class SpikingRWKV(nn.Module):
         self.value = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.receptance = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.output = nn.Linear(self.n_embd, self.n_embd, bias=False)
-        self.output = nn.Linear(self.n_embd, self.n_embd, bias = False)
+       
 
         self.spike = neuron.MultiStepLIFNode(
             tau = 2,
@@ -216,6 +216,7 @@ class SpikingRFFN(nn.Module):
         xk,xr = self._time_mix_inputs(x)
         out =  self._compute_rffn(xk,xr)
         out = self.spike(out.permute(1,0,2)).permute(1,0,2)
+        return out
 
 class SpikeBlock(nn.Module):
     def __init__(self,config,layer_id):
