@@ -191,7 +191,10 @@ class SpikingRFFN(nn.Module):
         self.time_mix_r = nn.Parameter(torch.pow(x, ratio_1_to_almost0))
         
     def _time_mix_inputs(self,x):
+        # gives model access to the token from one step earlier
         xx = self.time_shift(x)
+
+        # weighted mixure of current input x and previous input xx
         xk = x * self.time_mix_k + xx * (1 - self.time_mix_k)
         xr = x * self.time_mix_r + xx *(1- self.time_mix_r)
         return xk,xr
@@ -227,3 +230,39 @@ class SpikeBlock(nn.Module):
         x = x + self.spiking_rwkv(self.ln1(x))
         x = x + self.spiking_rffn(self.ln2(x))
         return x
+
+class SpikingGPT(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.ctx_len = config.ctx_len
+        self.n_embd = config.n_embd
+        self.vocab_size = config.vocab_size
+
+        self.emb = BinaryEmbedding(config.vocab_size, config.n_embd)
+
+        self.blocks = nn.ModuleList(
+            [SpikeBlock(config, layer_id=i) for i in range(config.n_layer)]
+        )
+
+        self.ln_out = nn.LayerNorm(config.n_embd)
+        self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+    
+    def forward(self,idx, targets = None):
+        B,T = idx.shape
+        assert T <= self.ctx_len, "Input sequence is longer than ctx_len."
+        x = self.emb(idx)
+        for block in self.blocks:
+            x = block(x)
+
+        x = self.ln_out(x)
+        logits = self.head(x)
+
+        if targets is not None:
+            loss = F.cross_entropy(
+                logits.reshape(-1, logits.size(-1)),
+                targets.reshape(-1)
+            )
+            return loss
+        return logits
+
