@@ -7,6 +7,9 @@ from dataset import Enwik8Dataset
 from config import GPTConfig, TrainerConfig
 from model import SpikingGPT
 
+MAX_TRAIN_STEPS_PER_EPOCH = 100
+MAX_VAL_STEPS = 25
+
 
 def evaluate(model, loader, device):
     model.eval()
@@ -24,17 +27,20 @@ def evaluate(model, loader, device):
 
             functional.reset_net(model)
 
+            if total_batches >= MAX_VAL_STEPS:
+                break
+
     return total_loss / max(total_batches, 1)
 
 
 def main():
     model_config = GPTConfig(
-        ctx_len=256,
+        ctx_len=128,
         n_embd=128,
         n_layer=2,
     )
     trainer_config = TrainerConfig(
-        max_epochs=2,
+        max_epochs=1,
         batch_size=4,
     )
 
@@ -112,6 +118,9 @@ def main():
             if step % trainer_config.log_every == 0:
                 print(f"epoch {epoch+1} step {step} loss {loss.item():.4f}")
 
+            if total_batches >= MAX_TRAIN_STEPS_PER_EPOCH:
+                break
+
         train_loss = total_loss / max(total_batches, 1)
         val_loss = evaluate(model, val_loader, device)
 
@@ -132,4 +141,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

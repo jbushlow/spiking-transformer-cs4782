@@ -74,10 +74,11 @@ class SpikingRWKV(nn.Module):
         self.output = nn.Linear(self.n_embd, self.n_embd, bias=False)
        
 
-        self.spike = neuron.MultiStepLIFNode(
-            tau = 2,
+        self.spike = neuron.LIFNode(
+            tau = 2.0,
             surrogate_function = surrogate.ATan(alpha = config.lif_alpha),
             v_threshold = config.lif_threshold,
+            step_mode='m',
             backend = "torch",
         )
 
@@ -172,10 +173,11 @@ class SpikingRFFN(nn.Module):
         self.receptance = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.value = nn.Linear(hidden_sz, self.n_embd, bias=False)
 
-        self.spike = neuron.MultiStepLIFNode(
+        self.spike = neuron.LIFNode(
             tau=2.0,
             surrogate_function=surrogate.ATan(alpha=config.lif_alpha),
             v_threshold=config.lif_threshold,
+            step_mode='m',
             backend="torch",
         )
     
