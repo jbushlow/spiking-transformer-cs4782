@@ -7,6 +7,7 @@ from dataset import Enwik8Dataset
 from config import GPTConfig, TrainerConfig
 from model import SpikingGPT
 
+MAX_TEST_STEPS = 25
 
 def evaluate(model, loader, device):
     model.eval()
@@ -22,18 +23,32 @@ def evaluate(model, loader, device):
             total_loss += loss.item()
             total_batches += 1
             functional.reset_net(model)
+            if total_batches >= MAX_TEST_STEPS:
+                break
 
     return total_loss / max(total_batches, 1)
 
 
 def main():
-    model_config = GPTConfig(ctx_len=256, n_embd=128, n_layer=2)
+    model_config = GPTConfig(ctx_len=128, n_embd=128, n_layer=2)
+
     trainer_config = TrainerConfig(batch_size=4)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     data_dir = Path(__file__).resolve().parent.parent / "data" / "enwik8_split"
-    ckpt_path = Path(__file__).resolve().parent.parent / "results" / "checkpoints" / "epoch_2.pt"
+    checkpoint_dir = Path(__file__).resolve().parent.parent / "results" / "checkpoints"
+    checkpoint_files = sorted(checkpoint_dir.glob("*.pt"))
+
+    if not checkpoint_files:
+        raise FileNotFoundError(f"No checkpoint files found in {checkpoint_dir}")
+
+    print("available checkpoints:")
+    for p in checkpoint_files:
+        print(" -", p.name)
+
+    ckpt_path = checkpoint_files[-1]
+    print("using checkpoint:", ckpt_path.name)
 
     test_dataset = Enwik8Dataset(data_dir / "test.txt", model_config.ctx_len)
     test_loader = DataLoader(
