@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from spikingjelly.activation_based import functional
 
 from dataset import Enwik8Dataset
-from config import GPTConfig, TrainerConfig
+from config import TrainerConfig, get_sanity_model_config
 from model import SpikingGPT
 
 MAX_TEST_STEPS = 25
@@ -129,8 +129,7 @@ def print_table_row(method, model_config, train_bpc, test_bpc, params_m):
 
 
 def main():
-    model_config = GPTConfig(ctx_len=128, n_embd=128, n_layer=2)
-
+    model_config = get_sanity_model_config()
     trainer_config = TrainerConfig(batch_size=4)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

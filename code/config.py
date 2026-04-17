@@ -41,3 +41,27 @@ class TrainerConfig:
 
         # Logging 
         self.log_every = kwargs.get('log_every', 50)
+
+
+def get_sanity_model_config():
+    return GPTConfig(
+        ctx_len=256,
+        n_embd=256,
+        n_layer=4,
+    )
+
+
+def get_spikegpt_46m_config(ctx_len=1024):
+    return GPTConfig(
+        ctx_len=ctx_len,
+        n_embd=512,
+        n_layer=12,
+    )
+
+
+def get_spikegpt_216m_config(ctx_len=1024):
+    return GPTConfig(
+        ctx_len=ctx_len,
+        n_embd=768,
+        n_layer=24,
+    )

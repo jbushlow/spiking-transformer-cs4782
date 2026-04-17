@@ -75,6 +75,10 @@ class SpikingRWKV(nn.Module):
         self.value = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.receptance = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.output = nn.Linear(self.n_embd, self.n_embd, bias=False)
+
+        nn.init.zeros_(self.key.weight)
+        nn.init.zeros_(self.receptance.weight)
+        nn.init.zeros_(self.output.weight)
        
 
         self.spike = neuron.LIFNode(
@@ -185,6 +189,10 @@ class SpikingRFFN(nn.Module):
         self.receptance = nn.Linear(self.n_embd, self.n_embd, bias=False)
         self.value = nn.Linear(hidden_sz, self.n_embd, bias=False)
 
+
+        nn.init.zeros_(self.value.weight)
+        nn.init.zeros_(self.receptance.weight)
+
         self.spike = neuron.LIFNode(
             tau=2.0,
             surrogate_function=surrogate.ATan(alpha=config.lif_alpha),
@@ -242,13 +250,22 @@ class SpikeBlock(nn.Module):
         super().__init__()
         self.ln1 = nn.LayerNorm(config.n_embd)
         self.ln2 = nn.LayerNorm(config.n_embd)
+        self.layer_id = layer_id
+        if layer_id == 0:
+            self.ln0 = nn.LayerNorm(config.n_embd)
+        self.dropout = nn.Dropout(0.03)
+
+
 
         self.spiking_rwkv = SpikingRWKV(config, layer_id)
         self.spiking_rffn = SpikingRFFN(config, layer_id)
 
     def forward(self,x):
+        if self.layer_id == 0:
+            x = self.ln0(x)
         x = x + self.spiking_rwkv(self.ln1(x))
         x = x + self.spiking_rffn(self.ln2(x))
+        x = self.dropout(x)
         return x
 
 class SpikingGPT(nn.Module):
