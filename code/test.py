@@ -1,5 +1,6 @@
 from pathlib import Path
 import math
+import re
 import torch
 from torch.utils.data import DataLoader
 from spikingjelly.activation_based import functional
@@ -11,6 +12,9 @@ from model import SpikingGPT
 MAX_TEST_STEPS = 25
 E_MAC_PJ = 4.5
 E_AC_PJ = 0.9
+
+
+CHECKPOINT_PATTERN = re.compile(r"^epoch_(\d+)(?:_step_(\d+))?\.pt$")
 
 def evaluate(model, loader, device):
     model.eval()
@@ -128,6 +132,17 @@ def print_table_row(method, model_config, train_bpc, test_bpc, params_m):
     print(f"Params (M): {params_m:.4f}")
 
 
+def checkpoint_sort_key(path: Path):
+    match = CHECKPOINT_PATTERN.match(path.name)
+    if match is None:
+        return (-1, -1, path.name)
+
+    epoch = int(match.group(1))
+    is_epoch_end = 1 if match.group(2) is None else 0
+    step = int(match.group(2) or 0)
+    return (epoch, is_epoch_end, step, path.name)
+
+
 def main():
     model_config = get_sanity_model_config()
     trainer_config = TrainerConfig(batch_size=4)
@@ -136,7 +151,7 @@ def main():
 
     data_dir = Path(__file__).resolve().parent.parent / "data" / "enwik8_split"
     checkpoint_dir = Path(__file__).resolve().parent.parent / "results" / "checkpoints"
-    checkpoint_files = sorted(checkpoint_dir.glob("*.pt"))
+    checkpoint_files = sorted(checkpoint_dir.glob("*.pt"), key=checkpoint_sort_key)
 
     if not checkpoint_files:
         raise FileNotFoundError(f"No checkpoint files found in {checkpoint_dir}")

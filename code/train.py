@@ -9,6 +9,7 @@ from model import SpikingGPT
 
 MAX_TRAIN_STEPS_PER_EPOCH = 1200
 MAX_VAL_STEPS = 50
+STEP_CHECKPOINT_EVERY = 200
 
 
 def evaluate(model, loader, device):
@@ -113,6 +114,19 @@ def main():
 
             if step % trainer_config.log_every == 0:
                 print(f"epoch {epoch+1} step {step} loss {loss.item():.4f}")
+
+            if total_batches % STEP_CHECKPOINT_EVERY == 0:
+                ckpt_path = checkpoint_dir / f"epoch_{epoch+1}_step_{total_batches}.pt"
+                torch.save(
+                    {
+                        "epoch": epoch + 1,
+                        "step": total_batches,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "train_loss": total_loss / max(total_batches, 1),
+                    },
+                    ckpt_path,
+                )
 
             if total_batches >= MAX_TRAIN_STEPS_PER_EPOCH:
                 break

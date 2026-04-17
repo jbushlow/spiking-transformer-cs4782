@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import torch
 import torch.nn.functional as F
@@ -13,6 +14,8 @@ DEFAULT_MAX_NEW_TOKENS = 200
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_TOP_K = 20
 
+CHECKPOINT_PATTERN = re.compile(r"^epoch_(\d+)(?:_step_(\d+))?\.pt$")
+
 
 def encode(text: str) -> list[int]:
     return list(text.encode("utf-8"))
@@ -22,9 +25,20 @@ def decode(tokens: list[int]) -> str:
     return bytes(tokens).decode("utf-8", errors="replace")
 
 
+def checkpoint_sort_key(path: Path):
+    match = CHECKPOINT_PATTERN.match(path.name)
+    if match is None:
+        return (-1, -1, path.name)
+
+    epoch = int(match.group(1))
+    is_epoch_end = 1 if match.group(2) is None else 0
+    step = int(match.group(2) or 0)
+    return (epoch, is_epoch_end, step, path.name)
+
+
 def get_latest_checkpoint() -> Path:
     checkpoint_dir = Path(__file__).resolve().parent.parent / "results" / "checkpoints"
-    checkpoint_files = sorted(checkpoint_dir.glob("*.pt"))
+    checkpoint_files = sorted(checkpoint_dir.glob("*.pt"), key=checkpoint_sort_key)
 
     if not checkpoint_files:
         raise FileNotFoundError(f"No checkpoint files found in {checkpoint_dir}")
