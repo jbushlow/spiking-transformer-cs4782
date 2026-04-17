@@ -27,6 +27,9 @@ class SpikingRWKV(nn.Module):
         self.n_embd = config.n_embd
         self.layer_id = layer_id
         self.ctx_len = config.ctx_len
+        self.spike_nonzero = 0
+        self.spike_total = 0
+
 
         self._init_rwkv_params(config,layer_id)
         self._init_layers(config)
@@ -81,6 +84,10 @@ class SpikingRWKV(nn.Module):
             step_mode='m',
             backend = "torch",
         )
+    def reset_spike_stats(self):
+        self.spike_nonzero = 0
+        self.spike_total = 0
+
 
     def _time_mix_inputs(self,x):
         xx = self.time_shift(x)
@@ -144,6 +151,9 @@ class SpikingRWKV(nn.Module):
     def _apply_spike(self,x):
         x = x.permute(1,0,2)
         x = self.spike(x)
+        self.spike_nonzero += (x != 0).sum().item()
+        self.spike_total += x.numel()
+
         return x.permute(1,0,2)
 
     def forward(self,x):
@@ -160,6 +170,8 @@ class SpikingRFFN(nn.Module):
         self.layer_id = layer_id
         self.ctx_len = config.ctx_len
         self.n_embd = config.n_embd
+        self.spike_nonzero = 0
+        self.spike_total = 0
 
         self._init_rffn_params(config,layer_id)
         self._init_layers(config)
@@ -180,6 +192,10 @@ class SpikingRFFN(nn.Module):
             step_mode='m',
             backend="torch",
         )
+
+    def reset_spike_stats(self):
+        self.spike_nonzero = 0
+        self.spike_total = 0
     
     
     def _init_rffn_params(self,config,layer_id):
@@ -211,14 +227,15 @@ class SpikingRFFN(nn.Module):
     def _apply_spike(self,x):
         x = x.permute(1,0,2)
         x = self.spike(x)
+        self.spike_nonzero += (x != 0).sum().item()
+        self.spike_total += x.numel()
         return x.permute(1,0,2)
 
 
     def forward(self,x):
         xk,xr = self._time_mix_inputs(x)
         out =  self._compute_rffn(xk,xr)
-        out = self.spike(out.permute(1,0,2)).permute(1,0,2)
-        return out
+        return self._apply_spike(out)
 
 class SpikeBlock(nn.Module):
     def __init__(self,config,layer_id):
@@ -268,4 +285,20 @@ class SpikingGPT(nn.Module):
             )
             return loss
         return logits
+    
+    def reset_spike_stats(self):
+        for block in self.blocks:
+            block.spiking_rwkv.reset_spike_stats()
+            block.spiking_rffn.reset_spike_stats()
+    def get_spike_stats(self):
+        total_nonzero = 0
+        total_elements = 0
 
+        for block in self.blocks:
+            total_nonzero += block.spiking_rwkv.spike_nonzero
+            total_elements += block.spiking_rwkv.spike_total
+
+            total_nonzero += block.spiking_rffn.spike_nonzero
+            total_elements += block.spiking_rffn.spike_total
+
+        return total_nonzero, total_elements
