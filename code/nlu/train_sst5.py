@@ -1,18 +1,19 @@
 import sys
 import os
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
-from config import get_spikegpt_46m_config, TrainerConfig
+from config import get_sanity_model_config, TrainerConfig
 from nlu.nlu_model import SpikingGPTClassifier
 from nlu.nlu_dataset import SST5Dataset
 from nlu.train_cls import train
 
-CHECKPOINT = 'results/checkpoints/epoch_1.pt'
+CHECKPOINT = Path(__file__).resolve().parent.parent.parent / 'results' / 'checkpoints' / 'epoch_4_17.pt'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-gpt_config = get_spikegpt_46m_config()
+gpt_config = get_sanity_model_config()
 model = SpikingGPTClassifier(gpt_config, num_classes=5).to(DEVICE)
 
 ckpt = torch.load(CHECKPOINT, map_location=DEVICE)
