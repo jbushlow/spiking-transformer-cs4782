@@ -38,6 +38,12 @@ class TrainerConfig:
         # Checkpointing (from git repo train.py)
         self.epoch_save_frequency = kwargs.get('epoch_save_frequency', 10)
         self.epoch_save_path = kwargs.get('epoch_save_path', 'results/checkpoints')
+        self.step_checkpoint_every = kwargs.get('step_checkpoint_every', 100)
+        self.auto_resume = kwargs.get('auto_resume', True)
+        self.resume_path = kwargs.get('resume_path', None)
+
+        # Reproducibility
+        self.seed = kwargs.get('seed', 42)
 
         # Logging 
         self.log_every = kwargs.get('log_every', 50)
