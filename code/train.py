@@ -124,6 +124,7 @@ def main():
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                         "train_loss": total_loss / max(total_batches, 1),
+                        "config": vars(model_config),
                     },
                     ckpt_path,
                 )
@@ -144,6 +145,7 @@ def main():
                 "optimizer_state_dict": optimizer.state_dict(),
                 "train_loss": train_loss,
                 "val_loss": val_loss,
+                "config": vars(model_config),
             },
             ckpt_path,
         )

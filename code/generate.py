@@ -22,8 +22,20 @@ def decode(tokens: list) -> str:
 
 def load_model(checkpoint_path: str, config: GPTConfig, device: str) -> SpikingGPT:
     ckpt = torch.load(checkpoint_path, map_location=device)
+    state = ckpt["model_state_dict"]
+
+    if "config" in ckpt:
+        saved = ckpt["config"]
+        config = GPTConfig(**{k: v for k, v in saved.items() if k != "n_ffn"})
+    else:
+        # infer n_embd and n_layer from weight shapes
+        n_embd = state["ln_out.weight"].shape[0]
+        n_layer = sum(1 for k in state if k.startswith("blocks.") and k.endswith(".ln1.weight"))
+        config = GPTConfig(ctx_len=config.ctx_len, n_embd=n_embd, n_layer=n_layer)
+
+    print(f"Config: n_embd={config.n_embd}, n_layer={config.n_layer}, ctx_len={config.ctx_len}")
     model = SpikingGPT(config).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    model.load_state_dict(state)
     epoch = ckpt.get("epoch", "?")
     val_loss = ckpt.get("val_loss", float("nan"))
     print(f"Loaded checkpoint  epoch={epoch}  val_loss={val_loss:.4f}")
