@@ -242,6 +242,12 @@ def main():
                 "optimizer_state_dict": optimizer.state_dict(),
                 "train_loss": train_loss,
                 "val_loss": val_loss,
+                "loss_sum": total_loss,
+                "rng_state_torch": torch.get_rng_state(),
+                "rng_state_cuda": torch.cuda.get_rng_state_all() if device == "cuda" else None,
+                "model_config": vars(model_config),
+                "trainer_config": vars(trainer_config),
+                "config": vars(model_config),
             },
         )
 
