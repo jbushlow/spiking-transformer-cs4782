@@ -1,5 +1,6 @@
 import sys
 import os
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
@@ -60,7 +61,22 @@ def train(model, train_dataset, val_dataset, trainer_config, device, ctx_len=102
         eps=trainer_config.eps,
     )
 
+    checkpoint_dir = Path(getattr(trainer_config, "cls_checkpoint_dir", "results/nlu_checkpoints"))
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    best_acc = -1.0
+
     for epoch in range(1, trainer_config.max_epochs + 1):
         loss = train_epoch(model, train_loader, optimizer, device, epoch, trainer_config.max_epochs)
         acc = evaluate(model, val_loader, device)
         print(f"epoch {epoch}/{trainer_config.max_epochs}: loss={loss:.4f}  val_acc={acc:.4f}")
+
+        latest_path = checkpoint_dir / "latest.pt"
+        torch.save(model.state_dict(), latest_path)
+
+        epoch_path = checkpoint_dir / f"epoch_{epoch}.pt"
+        torch.save(model.state_dict(), epoch_path)
+
+        if acc > best_acc:
+            best_acc = acc
+            best_path = checkpoint_dir / "best.pt"
+            torch.save(model.state_dict(), best_path)

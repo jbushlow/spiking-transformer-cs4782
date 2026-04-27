@@ -3,32 +3,45 @@ import os
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import argparse
 import torch
 
-from config import get_sanity_model_config, TrainerConfig
+from config import TrainerConfig, get_spikegpt_46m_config
 from nlu.nlu_model import SpikingGPTClassifier
 from nlu.nlu_dataset import SST2Dataset
 from nlu.train_cls import train
 
-CHECKPOINT = Path(__file__).resolve().parent.parent.parent / 'results' / 'checkpoints' / 'epoch_4_17.pt'
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-gpt_config = get_sanity_model_config()
-model = SpikingGPTClassifier(gpt_config, num_classes=2).to(DEVICE)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint", required=True, help="LM checkpoint to initialize the 46M backbone")
+    parser.add_argument("--output_dir", default="results/nlu_checkpoints/sst2_46m")
+    parser.add_argument("--ctx_len", type=int, default=1024)
+    args = parser.parse_args()
 
-ckpt = torch.load(CHECKPOINT, map_location=DEVICE)
-model.backbone.load_state_dict(ckpt['model_state_dict'], strict=False)
-print(f"Loaded backbone from {CHECKPOINT}")
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    gpt_config = get_spikegpt_46m_config(ctx_len=args.ctx_len)
+    model = SpikingGPTClassifier(gpt_config, num_classes=2).to(device)
 
-train_dataset = SST2Dataset(split='train')
-val_dataset = SST2Dataset(split='validation')
+    ckpt = torch.load(Path(args.checkpoint), map_location=device)
+    backbone_state = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
+    model.backbone.load_state_dict(backbone_state, strict=False)
+    print(f"Loaded backbone from {args.checkpoint}")
 
-trainer_config = TrainerConfig(
-    max_epochs=5,
-    batch_size=32,
-    learning_rate=1e-4,
-    betas=(0.9, 0.999),
-    eps=1e-8,
-)
+    train_dataset = SST2Dataset(split='train')
+    val_dataset = SST2Dataset(split='validation')
 
-train(model, train_dataset, val_dataset, trainer_config, DEVICE, ctx_len=gpt_config.ctx_len)
+    trainer_config = TrainerConfig(
+        max_epochs=5,
+        batch_size=32,
+        learning_rate=1e-4,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+    )
+    trainer_config.cls_checkpoint_dir = args.output_dir
+
+    train(model, train_dataset, val_dataset, trainer_config, device, ctx_len=gpt_config.ctx_len)
+
+
+if __name__ == "__main__":
+    main()
