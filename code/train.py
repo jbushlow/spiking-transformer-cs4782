@@ -254,6 +254,7 @@ def main():
                         "rng_state_cuda": torch.cuda.get_rng_state_all() if device == "cuda" else None,
                         "model_config": vars(model_config),
                         "trainer_config": vars(trainer_config),
+                        "config": vars(model_config),
                     },
                 )
                 prune_checkpoints(
@@ -286,6 +287,7 @@ def main():
                 "rng_state_cuda": torch.cuda.get_rng_state_all() if device == "cuda" else None,
                 "model_config": vars(model_config),
                 "trainer_config": vars(trainer_config),
+                "config": vars(model_config),
             },
         )
         prune_checkpoints(
