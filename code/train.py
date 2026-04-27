@@ -7,12 +7,17 @@ from torch.utils.data import DataLoader
 from spikingjelly.activation_based import functional
 
 from dataset import Enwik8Dataset
-from config import TrainerConfig, get_sanity_model_config
+from config import TrainerConfig, get_spikegpt_colab_config, get_spikegpt_46m_config
 from model import SpikingGPT
-from utils.checkpoint import find_latest_checkpoint, load_checkpoint, save_checkpoint
+from utils.checkpoint import (
+    find_latest_checkpoint,
+    load_checkpoint,
+    prune_checkpoints,
+    save_checkpoint,
+)
 
-MAX_TRAIN_STEPS_PER_EPOCH = 200
-MAX_VAL_STEPS = 50
+MAX_TRAIN_STEPS_PER_EPOCH = 20
+MAX_VAL_STEPS = 40
 
 
 def parse_args():
@@ -91,14 +96,37 @@ def restore_training_state(checkpoint, model, optimizer, device):
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-    if "rng_state_torch" in checkpoint:
-        torch.set_rng_state(checkpoint["rng_state_torch"])
-    if (
-        device == "cuda"
-        and "rng_state_cuda" in checkpoint
-        and checkpoint["rng_state_cuda"] is not None
-    ):
-        torch.cuda.set_rng_state_all(checkpoint["rng_state_cuda"])
+    rng_state_torch = checkpoint.get("rng_state_torch")
+    if rng_state_torch is not None:
+        try:
+            if not isinstance(rng_state_torch, torch.Tensor):
+                rng_state_torch = torch.as_tensor(rng_state_torch, dtype=torch.uint8)
+            else:
+                rng_state_torch = rng_state_torch.to(dtype=torch.uint8, device="cpu")
+            torch.set_rng_state(rng_state_torch)
+        except Exception as exc:
+            print(f"warning: could not restore torch RNG state ({exc})")
+
+    rng_state_cuda = checkpoint.get("rng_state_cuda")
+    if device == "cuda" and rng_state_cuda is not None:
+        try:
+            if isinstance(rng_state_cuda, (list, tuple)):
+                cuda_states = []
+                for state in rng_state_cuda:
+                    if not isinstance(state, torch.Tensor):
+                        state = torch.as_tensor(state, dtype=torch.uint8)
+                    else:
+                        state = state.to(dtype=torch.uint8, device="cpu")
+                    cuda_states.append(state)
+                torch.cuda.set_rng_state_all(cuda_states)
+            else:
+                if not isinstance(rng_state_cuda, torch.Tensor):
+                    rng_state_cuda = torch.as_tensor(rng_state_cuda, dtype=torch.uint8)
+                else:
+                    rng_state_cuda = rng_state_cuda.to(dtype=torch.uint8, device="cpu")
+                torch.cuda.set_rng_state(rng_state_cuda)
+        except Exception as exc:
+            print(f"warning: could not restore CUDA RNG state ({exc})")
 
     start_epoch = checkpoint["epoch"]
     global_step = checkpoint.get("global_step", 0)
@@ -109,10 +137,14 @@ def restore_training_state(checkpoint, model, optimizer, device):
 def main():
     args = parse_args()
 
-    model_config = get_sanity_model_config()
+    model_config = get_spikegpt_46m_config()
     trainer_config = TrainerConfig(
-        max_epochs=1,
-        batch_size=4,
+        max_epochs=1000,
+        batch_size=8,
+        step_checkpoint_every=10,
+        log_every=5,
+        keep_last_epoch_checkpoints=2,
+        keep_last_step_checkpoints=1,
     )
 
     if args.checkpoint_dir is not None:
@@ -202,7 +234,10 @@ def main():
             if step % trainer_config.log_every == 0:
                 print(f"epoch {epoch + 1} step {step} loss {loss.item():.4f}")
 
-            if total_batches % trainer_config.step_checkpoint_every == 0:
+            if (
+                total_batches % trainer_config.step_checkpoint_every == 0
+                and total_batches < MAX_TRAIN_STEPS_PER_EPOCH
+            ):
                 ckpt_path = checkpoint_dir / f"epoch_{epoch + 1}_step_{total_batches}.pt"
                 save_checkpoint(
                     ckpt_path,
@@ -220,6 +255,11 @@ def main():
                         "model_config": vars(model_config),
                         "trainer_config": vars(trainer_config),
                     },
+                )
+                prune_checkpoints(
+                    checkpoint_dir,
+                    keep_last_epoch_checkpoints=trainer_config.keep_last_epoch_checkpoints,
+                    keep_last_step_checkpoints=trainer_config.keep_last_step_checkpoints,
                 )
 
             if total_batches >= MAX_TRAIN_STEPS_PER_EPOCH:
@@ -247,6 +287,11 @@ def main():
                 "model_config": vars(model_config),
                 "trainer_config": vars(trainer_config),
             },
+        )
+        prune_checkpoints(
+            checkpoint_dir,
+            keep_last_epoch_checkpoints=trainer_config.keep_last_epoch_checkpoints,
+            keep_last_step_checkpoints=trainer_config.keep_last_step_checkpoints,
         )
 
 

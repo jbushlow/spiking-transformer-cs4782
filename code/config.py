@@ -39,6 +39,8 @@ class TrainerConfig:
         self.epoch_save_frequency = kwargs.get('epoch_save_frequency', 10)
         self.epoch_save_path = kwargs.get('epoch_save_path', 'results/checkpoints')
         self.step_checkpoint_every = kwargs.get('step_checkpoint_every', 100)
+        self.keep_last_epoch_checkpoints = kwargs.get('keep_last_epoch_checkpoints', 5)
+        self.keep_last_step_checkpoints = kwargs.get('keep_last_step_checkpoints', 3)
         self.auto_resume = kwargs.get('auto_resume', True)
         self.resume_path = kwargs.get('resume_path', None)
 
@@ -70,4 +72,12 @@ def get_spikegpt_216m_config(ctx_len=1024):
         ctx_len=ctx_len,
         n_embd=768,
         n_layer=24,
+    )
+
+
+def get_spikegpt_colab_config(ctx_len=256):
+    return GPTConfig(
+        ctx_len=ctx_len,
+        n_embd=384,
+        n_layer=6,
     )
