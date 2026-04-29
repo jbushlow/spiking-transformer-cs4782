@@ -1,0 +1,22 @@
+\begin{table*}[t]
+\centering
+\caption{Energy Evaluation. $F L_{MLP}$ represents the floating-point operations (FLOPs) of the MLP layers in the ANNs, while $\hat{R}$ denotes the spike firing rate. For this checkpoint, operations are parameterized with $T=1024$, $d=512$, and $\hat{R}=0.1216$. Energy assumes $E_{MAC}=4.5$pJ and $E_{AC}=0.9$pJ.}
+\begin{tabular}{llccccc}
+\hline
+ &  & Vanilla GPT & SpikeGPT & \multicolumn{2}{c}{Energy Consumption (pJ)} & Ratio \\
+\cline{5-6}
+Module & Operation & Formula & Formula & Vanilla GPT & SpikeGPT & V/S \\
+\hline
+Attention & $Q/R, K, V$ & $E_{MAC} \cdot 3Td^2$ & $E_{AC} \cdot \hat{R} \cdot 3Td^2$ & $3.62 \times 10^{9}$ & $8.81 \times 10^{7}$ & 41.11x \\
+Attention & $f(Q/R,K,V)$ & $E_{MAC} \cdot 2T^2d$ & $E_{MAC} \cdot 7Td$ & $4.83 \times 10^{9}$ & $1.65 \times 10^{7}$ & 292.57x \\
+Attention & Scale & $E_{MAC} \cdot T^2$ & - & $4.72 \times 10^{6}$ & - & - \\
+Attention & Softmax & $E_{MAC} \cdot 2T^2$ & - & $9.44 \times 10^{6}$ & - & - \\
+\hline
+FFN & Layer 1 & $E_{MAC} \cdot FL_{MLP1}$ & $E_{AC} \cdot \hat{R} \cdot FL_{MLP1}$ & $4.72 \times 10^{6}$ & $1.15 \times 10^{5}$ & 41.11x \\
+FFN & Layer 2 & $E_{MAC} \cdot FL_{MLP2}$ & $E_{AC} \cdot \hat{R} \cdot FL_{MLP2}$ & $1.18 \times 10^{6}$ & $2.87 \times 10^{4}$ & 41.11x \\
+FFN & Layer 3 & $E_{MAC} \cdot FL_{MLP3}$ & $E_{AC} \cdot \hat{R} \cdot FL_{MLP3}$ & $4.72 \times 10^{6}$ & $1.15 \times 10^{5}$ & 41.11x \\
+\hline
+Overall & - & - & - & $8.48 \times 10^{9}$ & $1.05 \times 10^{8}$ & 80.83x \\
+\hline
+\end{tabular}
+\end{table*}

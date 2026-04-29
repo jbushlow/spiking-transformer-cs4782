@@ -1,0 +1,8 @@
+checkpoint=/Users/kathleenchen/Library/CloudStorage/OneDrive-CornellUniversity/25-26/DL/spiking-transformer-cs4782/results/checkpoints/epoch_163.pt
+ctx_len=1024
+n_embd=512
+n_layer=12
+train_bpc=4.195509
+test_bpc=2.019621
+r_hat=0.121619
+params_m=41.226240

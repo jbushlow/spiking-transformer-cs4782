@@ -198,6 +198,10 @@ __MACOSX/
 .ruff_cache/
 
 # PyPI configuration file
+
+# Project artifacts
+results/checkpoints/
+results/colab_records/
 .pypirc
 
 # Cursor

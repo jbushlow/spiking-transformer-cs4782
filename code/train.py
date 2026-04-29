@@ -16,7 +16,7 @@ from utils.checkpoint import (
     save_checkpoint,
 )
 
-MAX_TRAIN_STEPS_PER_EPOCH = 20
+MAX_TRAIN_STEPS_PER_EPOCH = 250
 MAX_VAL_STEPS = 40
 
 
@@ -141,8 +141,8 @@ def main():
     trainer_config = TrainerConfig(
         max_epochs=1000,
         batch_size=8,
-        step_checkpoint_every=10,
-        log_every=5,
+        step_checkpoint_every=100,
+        log_every=50,
         keep_last_epoch_checkpoints=2,
         keep_last_step_checkpoints=1,
     )
