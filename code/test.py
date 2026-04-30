@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--max-test-steps", type=int, default=None, help="Optional cap on evaluation batches. Default evaluates the full dataset.")
     parser.add_argument("--progress-every", type=int, default=10, help="Print evaluation progress every N batches.")
+    parser.add_argument("--include-train-bpc", action="store_true", help="Also evaluate the training split. By default only test BPC is computed.")
     return parser.parse_args()
 
 
@@ -194,13 +195,14 @@ Overall & - & - & - & ${sci_latex(m['vanilla_overall'])}$ & ${sci_latex(m['spike
 
 
 def build_bpc_table_latex(model_config, train_bpc, test_bpc, params_m):
+    train_bpc_str = "-" if train_bpc is None else f"{train_bpc:.3f}"
     spike_row = (
         "SpikeGPT 46M (ours)",
         "yes",
         str(model_config.n_layer),
         str(model_config.n_embd),
         str(model_config.ctx_len),
-        f"{train_bpc:.3f}",
+        train_bpc_str,
         f"{test_bpc:.3f}",
         r"$\mathcal{O}(T \cdot d)$",
         f"{params_m:.1f}M",
@@ -241,14 +243,6 @@ def main():
     trainer_config = TrainerConfig(batch_size=args.batch_size)
 
     data_dir = Path(__file__).resolve().parent.parent / "data" / "enwik8_split"
-    train_dataset = Enwik8Dataset(data_dir / "train.txt", model_config.ctx_len)
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=trainer_config.batch_size,
-        shuffle=False,
-        num_workers=trainer_config.num_workers,
-    )
-
     test_dataset = Enwik8Dataset(data_dir / "test.txt", model_config.ctx_len)
     test_loader = DataLoader(
         test_dataset,
@@ -263,16 +257,25 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     params_m = num_params / 1e6
 
-    model.reset_spike_stats()
-    train_loss = evaluate(
-        model,
-        train_loader,
-        device,
-        max_steps=args.max_test_steps,
-        progress_every=args.progress_every,
-        split_name="train",
-    )
-    train_bpc = train_loss / math.log(2)
+    train_bpc = None
+    if args.include_train_bpc:
+        train_dataset = Enwik8Dataset(data_dir / "train.txt", model_config.ctx_len)
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=trainer_config.batch_size,
+            shuffle=False,
+            num_workers=trainer_config.num_workers,
+        )
+        model.reset_spike_stats()
+        train_loss = evaluate(
+            model,
+            train_loader,
+            device,
+            max_steps=args.max_test_steps,
+            progress_every=args.progress_every,
+            split_name="train",
+        )
+        train_bpc = train_loss / math.log(2)
 
     model.reset_spike_stats()
     test_loss = evaluate(
@@ -304,17 +307,21 @@ def main():
                 f"ctx_len={model_config.ctx_len}",
                 f"n_embd={model_config.n_embd}",
                 f"n_layer={model_config.n_layer}",
-                f"train_bpc={train_bpc:.6f}",
+                f"train_bpc={'not_computed' if train_bpc is None else f'{train_bpc:.6f}'}",
                 f"test_bpc={test_bpc:.6f}",
                 f"r_hat={r_hat:.6f}",
                 f"params_m={params_m:.6f}",
                 f"max_test_steps={'full' if args.max_test_steps is None else args.max_test_steps}",
+                f"include_train_bpc={args.include_train_bpc}",
             ]
         )
         + "\n"
     )
 
-    print(f"train_bpc={train_bpc:.4f}")
+    if train_bpc is not None:
+        print(f"train_bpc={train_bpc:.4f}")
+    else:
+        print("train_bpc=not computed")
     print(f"test_bpc={test_bpc:.4f}")
     print(f"R_hat={r_hat:.6f}")
     print(f"params_m={params_m:.4f}")

@@ -1,4 +1,5 @@
 import argparse
+import math
 import random
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from utils.checkpoint import (
 
 MAX_TRAIN_STEPS_PER_EPOCH = 250
 MAX_VAL_STEPS = 40
+LEGACY_MAX_TRAIN_STEPS_PER_EPOCH = 20
+LEGACY_STEP_SWITCH_EPOCH = 169
 
 
 def parse_args():
@@ -38,6 +41,13 @@ def parse_args():
         default=None,
         help="Directory where checkpoints are saved and searched.",
     )
+    parser.add_argument(
+        "--planned-epochs-remaining",
+        type=int,
+        default=50,
+        help="How many more epochs you expect to train from this run. Used to set the LR decay horizon.",
+    )
+   
     return parser.parse_args()
 
 
@@ -92,6 +102,34 @@ def get_checkpoint_to_resume(args, trainer_config):
     return None
 
 
+def compute_lr(tokens_seen, trainer_config):
+    if not getattr(trainer_config, "lr_decay", True):
+        return trainer_config.learning_rate
+
+    lr_final = trainer_config.lr_final
+    lr_init = trainer_config.learning_rate
+    warmup_tokens = max(int(getattr(trainer_config, "warmup_tokens", 0)), 0)
+    final_tokens = max(int(getattr(trainer_config, "final_tokens", warmup_tokens + 1)), warmup_tokens + 1)
+
+    if warmup_tokens > 0 and tokens_seen < warmup_tokens:
+        warmup_ratio = tokens_seen / warmup_tokens
+        return lr_final + (lr_init - lr_final) * warmup_ratio
+
+    progress = min(max((tokens_seen - warmup_tokens) / max(1, final_tokens - warmup_tokens), 0.0), 1.0)
+    cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+    return lr_final + (lr_init - lr_final) * cosine
+
+
+def estimate_tokens_seen_from_epoch(epoch, trainer_config, model_config):
+    tokens_per_step = trainer_config.batch_size * model_config.ctx_len
+    legacy_epochs = min(epoch, LEGACY_STEP_SWITCH_EPOCH)
+    current_epochs = max(epoch - LEGACY_STEP_SWITCH_EPOCH, 0)
+    return (
+        legacy_epochs * LEGACY_MAX_TRAIN_STEPS_PER_EPOCH * tokens_per_step
+        + current_epochs * MAX_TRAIN_STEPS_PER_EPOCH * tokens_per_step
+    )
+
+
 def restore_training_state(checkpoint, model, optimizer, device):
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -130,8 +168,9 @@ def restore_training_state(checkpoint, model, optimizer, device):
 
     start_epoch = checkpoint["epoch"]
     global_step = checkpoint.get("global_step", 0)
+    tokens_seen = checkpoint.get("tokens_seen")
 
-    return start_epoch, global_step
+    return start_epoch, global_step, tokens_seen
 
 
 def main():
@@ -152,6 +191,8 @@ def main():
     if args.resume_path is not None:
         trainer_config.resume_path = args.resume_path
     trainer_config.auto_resume = args.resume == "latest"
+    trainer_config.warmup_tokens = 0
+   
 
     set_seed(trainer_config.seed)
 
@@ -194,16 +235,32 @@ def main():
     checkpoint_path = get_checkpoint_to_resume(args, trainer_config)
     start_epoch = 0
     global_step = 0
+    tokens_seen = 0
 
     if checkpoint_path is not None and checkpoint_path.exists():
         checkpoint = load_checkpoint(checkpoint_path, device)
-        start_epoch, global_step = restore_training_state(checkpoint, model, optimizer, device)
+        start_epoch, global_step, tokens_seen = restore_training_state(checkpoint, model, optimizer, device)
+        if tokens_seen is None:
+            tokens_seen = estimate_tokens_seen_from_epoch(start_epoch, trainer_config, model_config)
+            print(f"warning: checkpoint missing tokens_seen; estimated tokens_seen={tokens_seen}")
         print(
             f"resuming from {checkpoint_path} "
             f"(starting at epoch {start_epoch + 1})"
         )
     else:
         print("starting training from scratch")
+
+    tokens_per_epoch = (
+        MAX_TRAIN_STEPS_PER_EPOCH
+        * trainer_config.batch_size
+        * model_config.ctx_len
+    )
+    trainer_config.final_tokens = tokens_seen + args.planned_epochs_remaining * tokens_per_epoch
+    print(
+        f"lr schedule horizon: current tokens_seen={tokens_seen}, "
+        f"planned_epochs_remaining={args.planned_epochs_remaining}, "
+        f"final_tokens={trainer_config.final_tokens}"
+    )
 
     for epoch in range(start_epoch, trainer_config.max_epochs):
         model.train()
@@ -225,6 +282,10 @@ def main():
             )
 
             optimizer.step()
+            tokens_seen += y.numel()
+            lr = compute_lr(tokens_seen, trainer_config)
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = lr
             functional.reset_net(model)
 
             total_loss += loss.item()
@@ -232,7 +293,7 @@ def main():
             global_step += 1
 
             if step % trainer_config.log_every == 0:
-                print(f"epoch {epoch + 1} step {step} loss {loss.item():.4f}")
+                print(f"epoch {epoch + 1} step {step} loss {loss.item():.4f} lr {lr:.6e}")
 
             if (
                 total_batches % trainer_config.step_checkpoint_every == 0
@@ -248,6 +309,7 @@ def main():
                         "completed_epoch": False,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
+                        "tokens_seen": tokens_seen,
                         "train_loss": total_loss / max(total_batches, 1),
                         "loss_sum": total_loss,
                         "rng_state_torch": torch.get_rng_state(),
@@ -280,6 +342,7 @@ def main():
                 "completed_epoch": True,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "tokens_seen": tokens_seen,
                 "train_loss": train_loss,
                 "val_loss": val_loss,
                 "loss_sum": total_loss,
