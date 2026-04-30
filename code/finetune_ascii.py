@@ -21,6 +21,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 from spikingjelly.activation_based import functional
+from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -73,7 +74,7 @@ def evaluate(model, loader, device):
     model.eval()
     total_loss, n = 0.0, 0
     with torch.no_grad():
-        for x, y in loader:
+        for x, y in tqdm(loader, desc='  val', leave=False, total=MAX_VAL_STEPS):
             x, y = x.to(device), y.to(device)
             loss = model(x, y)
             total_loss += loss.item()
@@ -184,7 +185,9 @@ def main():
         total_loss, n_batches = 0.0, 0
         skip_steps = resume_step if epoch == start_epoch else 0
 
-        for step, (x, y) in enumerate(train_loader):
+        pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{args.epochs}',
+                    total=args.steps_per_epoch, unit='step')
+        for step, (x, y) in enumerate(pbar):
             if step < skip_steps:
                 continue
 
@@ -205,9 +208,7 @@ def main():
             n_batches  += 1
             global_step += 1
 
-            if n_batches % 10 == 0:
-                print(f'  epoch {epoch+1} step {n_batches:4d} | '
-                      f'loss={loss.item():.4f}  lr={lr:.2e}')
+            pbar.set_postfix(loss=f'{loss.item():.4f}', lr=f'{lr:.2e}')
 
             # Step-level checkpoint for crash recovery
             if args.save_every > 0 and n_batches % args.save_every == 0:
@@ -226,6 +227,7 @@ def main():
             if n_batches >= args.steps_per_epoch:
                 break
 
+        pbar.close()
         train_loss = total_loss / max(n_batches, 1)
         val_loss   = evaluate(model, val_loader, device)
         print(f'Epoch {epoch+1}/{args.epochs} — train={train_loss:.4f}  val={val_loss:.4f}')
