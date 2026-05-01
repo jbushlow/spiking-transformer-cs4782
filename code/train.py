@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument(
         "--planned-epochs-remaining",
         type=int,
-        default=50,
+        default=10,
         help="How many more epochs you expect to train from this run. Used to set the LR decay horizon.",
     )
    
