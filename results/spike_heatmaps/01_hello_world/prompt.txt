@@ -1,0 +1,16 @@
+prompt: Hello, world!
+bytes: 13
+timestep,byte,display,is_punctuation
+0,72,H,0
+1,101,e,0
+2,108,l,0
+3,108,l,0
+4,111,o,0
+5,44,,,1
+6,32, ,0
+7,119,w,0
+8,111,o,0
+9,114,r,0
+10,108,l,0
+11,100,d,0
+12,33,!,1

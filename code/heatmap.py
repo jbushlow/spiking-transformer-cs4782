@@ -247,6 +247,143 @@ def summarize_prompt(prompt, byte_values, captures):
     return rows
 
 
+def save_activity_comparison_plot(prompt_rows, prompt, output_path, dpi):
+    modules = sorted({row["module"] for row in prompt_rows})
+    layers = sorted({int(row["layer"]) for row in prompt_rows})
+    rates_by_module = {
+        module: [
+            next(row["spike_rate"] for row in prompt_rows if row["module"] == module and int(row["layer"]) == layer)
+            for layer in layers
+        ]
+        for module in modules
+    }
+    combined_rates = []
+    for layer in layers:
+        layer_rates = [
+            row["spike_rate"]
+            for row in prompt_rows
+            if int(row["layer"]) == layer
+        ]
+        combined_rates.append(sum(layer_rates) / max(len(layer_rates), 1))
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for module in modules:
+        ax.plot(layers, rates_by_module[module], marker="o", label=f"SpikeGPT {module.upper()}")
+    ax.plot(
+        layers,
+        combined_rates,
+        marker="s",
+        linewidth=2.5,
+        label="SpikeGPT Combined",
+    )
+
+    dense_baseline = [1.0 for _ in layers]
+    ax.plot(
+        layers,
+        dense_baseline,
+        linestyle="--",
+        color="black",
+        label="Regular Transformer (dense baseline)",
+    )
+    ax.set_title(f"Spike Activity vs Dense Baseline | {prompt}")
+    ax.set_xlabel("Layer")
+    ax.set_ylabel("Active fraction")
+    ax.set_ylim(0.0, 1.05)
+    ax.grid(alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi)
+    plt.close(fig)
+
+
+def save_layer_timestep_summary(captures, byte_values, prompt, layer_ids, modules, output_path, dpi):
+    module_names = []
+    if modules in {"rwkv", "both"}:
+        module_names.append("rwkv")
+    if modules in {"rffn", "both"}:
+        module_names.append("rffn")
+
+    labels = format_token_labels(byte_values)
+    fig, axes = plt.subplots(len(module_names), 1, figsize=(max(8.0, len(byte_values) * 0.35), 2.8 * len(module_names)), squeeze=False)
+
+    for row_index, module_name in enumerate(module_names):
+        layer_means = []
+        for layer_id in layer_ids:
+            capture_name = f"layer_{layer_id:02d}_{module_name}"
+            spikes = captures[capture_name]
+            layer_means.append(spikes.mean(dim=1))
+
+        data = torch.stack(layer_means, dim=0).numpy()
+        ax = axes[row_index][0]
+        image = ax.imshow(data, aspect="auto", interpolation="nearest", cmap="hot", vmin=0.0, vmax=1.0)
+        ax.set_title(f"{module_name.upper()} mean activity by layer and timestep", fontsize=10)
+        ax.set_ylabel("Layer")
+        ax.set_yticks(range(len(layer_ids)))
+        ax.set_yticklabels(layer_ids)
+        ax.set_xticks(range(len(byte_values)))
+        ax.set_xticklabels(labels, rotation=90, fontsize=7)
+        ax.set_xlabel("Prompt byte / timestep")
+        fig.colorbar(image, ax=ax, label="Mean spike rate", shrink=0.85)
+
+    fig.suptitle(f"Layer-by-Timestep Activity Summary | {prompt}", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi)
+    plt.close(fig)
+
+
+def save_prompt_difference_plot(prompt_dirs, prompt_capture_sets, byte_values_sets, layer_ids, modules, output_path, dpi):
+    if len(prompt_capture_sets) < 2:
+        return
+
+    first_prompt, second_prompt = prompt_capture_sets[0], prompt_capture_sets[1]
+    first_bytes, second_bytes = byte_values_sets[0], byte_values_sets[1]
+    if first_bytes != second_bytes:
+        max_len = min(len(first_bytes), len(second_bytes))
+        first_bytes = first_bytes[:max_len]
+        second_bytes = second_bytes[:max_len]
+    else:
+        max_len = len(first_bytes)
+
+    if max_len == 0:
+        return
+
+    module_names = []
+    if modules in {"rwkv", "both"}:
+        module_names.append("rwkv")
+    if modules in {"rffn", "both"}:
+        module_names.append("rffn")
+
+    labels = format_token_labels(first_bytes[:max_len])
+    fig, axes = plt.subplots(len(module_names), 1, figsize=(max(8.0, max_len * 0.35), 2.8 * len(module_names)), squeeze=False)
+
+    for row_index, module_name in enumerate(module_names):
+        diff_rows = []
+        for layer_id in layer_ids:
+            capture_name = f"layer_{layer_id:02d}_{module_name}"
+            first_spikes = first_prompt[capture_name][:max_len]
+            second_spikes = second_prompt[capture_name][:max_len]
+            diff_rows.append(first_spikes.mean(dim=1) - second_spikes.mean(dim=1))
+
+        data = torch.stack(diff_rows, dim=0).numpy()
+        vmax = max(abs(data.min()), abs(data.max()), 1e-6)
+        ax = axes[row_index][0]
+        image = ax.imshow(data, aspect="auto", interpolation="nearest", cmap="coolwarm", vmin=-vmax, vmax=vmax)
+        ax.set_title(f"{module_name.upper()} prompt difference: prompt1 - prompt2", fontsize=10)
+        ax.set_ylabel("Layer")
+        ax.set_yticks(range(len(layer_ids)))
+        ax.set_yticklabels(layer_ids)
+        ax.set_xticks(range(max_len))
+        ax.set_xticklabels(labels, rotation=90, fontsize=7)
+        ax.set_xlabel("Prompt byte / timestep")
+        fig.colorbar(image, ax=ax, label="Mean spike-rate difference", shrink=0.85)
+
+    prompt_names = [path.name for path in prompt_dirs[:2]]
+    fig.suptitle(f"Prompt Difference Summary | {prompt_names[0]} minus {prompt_names[1]}", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi)
+    plt.close(fig)
+
+
 def write_summary_csv(rows, output_path):
     fieldnames = [
         "prompt",
@@ -286,19 +423,33 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows = []
+    total_prompts = len(prompts)
+    prompt_dirs = []
+    prompt_capture_sets = []
+    byte_values_sets = []
 
     for prompt_index, prompt in enumerate(prompts):
+        print(f"[{prompt_index + 1}/{total_prompts}] analyzing prompt: {prompt!r}")
         idx, byte_values = encode_prompt(prompt, model_config.ctx_len)
         captures = collect_spikes(model, idx, device, layer_ids, args.modules)
 
         prompt_slug = slugify_prompt(prompt, prompt_index)
         prompt_dir = output_dir / prompt_slug
         prompt_dir.mkdir(parents=True, exist_ok=True)
+        prompt_dirs.append(prompt_dir)
+        prompt_capture_sets.append(captures)
+        byte_values_sets.append(byte_values)
         save_prompt_overview(prompt, byte_values, prompt_dir / "prompt.txt")
 
-        for name, spikes in sorted(captures.items()):
+        sorted_captures = sorted(captures.items())
+        total_heatmaps = len(sorted_captures)
+        for heatmap_index, (name, spikes) in enumerate(sorted_captures):
             layer_text, module_name = name.rsplit("_", 1)
             layer_id = int(layer_text.split("_")[1])
+            print(
+                f"  [{heatmap_index + 1}/{total_heatmaps}] saving layer {layer_id} "
+                f"{module_name.upper()} heatmap"
+            )
             title = f"Layer {layer_id} {module_name.upper()} | {prompt}"
             output_path = prompt_dir / f"{name}.png"
             save_heatmap(
@@ -310,9 +461,40 @@ def main():
                 dpi=args.dpi,
             )
 
-        summary_rows.extend(summarize_prompt(prompt, byte_values, captures))
+        prompt_rows = summarize_prompt(prompt, byte_values, captures)
+        summary_rows.extend(prompt_rows)
+
+        print("  saving activity-vs-dense comparison plot")
+        save_activity_comparison_plot(
+            prompt_rows=prompt_rows,
+            prompt=prompt,
+            output_path=prompt_dir / "activity_vs_dense.png",
+            dpi=args.dpi,
+        )
+
+        print("  saving layer-by-timestep summary plot")
+        save_layer_timestep_summary(
+            captures=captures,
+            byte_values=byte_values,
+            prompt=prompt,
+            layer_ids=layer_ids,
+            modules=args.modules,
+            output_path=prompt_dir / "layer_timestep_summary.png",
+            dpi=args.dpi,
+        )
 
     write_summary_csv(summary_rows, output_dir / "summary.csv")
+    if len(prompt_capture_sets) >= 2:
+        print("saving prompt-difference summary plot")
+        save_prompt_difference_plot(
+            prompt_dirs=prompt_dirs,
+            prompt_capture_sets=prompt_capture_sets,
+            byte_values_sets=byte_values_sets,
+            layer_ids=layer_ids,
+            modules=args.modules,
+            output_path=output_dir / "prompt_difference_summary.png",
+            dpi=args.dpi,
+        )
     print(f"saved spike heatmaps to {output_dir}")
     print(f"checkpoint: {checkpoint_path}")
     print(f"prompts analyzed: {len(prompts)}")

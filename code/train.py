@@ -44,8 +44,25 @@ def parse_args():
     parser.add_argument(
         "--planned-epochs-remaining",
         type=int,
-        default=10,
+        default=25,
         help="How many more epochs you expect to train from this run. Used to set the LR decay horizon.",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Optional override for the starting learning rate used by the cosine schedule.",
+    )
+    parser.add_argument(
+        "--lr-final",
+        type=float,
+        default=None,
+        help="Optional override for the final learning-rate floor.",
+    )
+    parser.add_argument(
+        "--preserve-lr-schedule",
+        action="store_true",
+        help="When resuming, reuse learning-rate schedule parameters saved in the checkpoint instead of starting a fresh cosine horizon.",
     )
    
     return parser.parse_args()
@@ -109,13 +126,23 @@ def compute_lr(tokens_seen, trainer_config):
     lr_final = trainer_config.lr_final
     lr_init = trainer_config.learning_rate
     warmup_tokens = max(int(getattr(trainer_config, "warmup_tokens", 0)), 0)
-    final_tokens = max(int(getattr(trainer_config, "final_tokens", warmup_tokens + 1)), warmup_tokens + 1)
+    schedule_start_tokens = max(
+        int(getattr(trainer_config, "schedule_start_tokens", 0)),
+        0,
+    )
+    final_tokens = max(
+        int(getattr(trainer_config, "final_tokens", schedule_start_tokens + warmup_tokens + 1)),
+        schedule_start_tokens + warmup_tokens + 1,
+    )
 
-    if warmup_tokens > 0 and tokens_seen < warmup_tokens:
-        warmup_ratio = tokens_seen / warmup_tokens
+    if warmup_tokens > 0 and tokens_seen < schedule_start_tokens + warmup_tokens:
+        warmup_progress = max(tokens_seen - schedule_start_tokens, 0)
+        warmup_ratio = warmup_progress / warmup_tokens
         return lr_final + (lr_init - lr_final) * warmup_ratio
 
-    progress = min(max((tokens_seen - warmup_tokens) / max(1, final_tokens - warmup_tokens), 0.0), 1.0)
+    progress_numerator = tokens_seen - schedule_start_tokens - warmup_tokens
+    progress_denominator = max(1, final_tokens - schedule_start_tokens - warmup_tokens)
+    progress = min(max(progress_numerator / progress_denominator, 0.0), 1.0)
     cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
     return lr_final + (lr_init - lr_final) * cosine
 
@@ -170,7 +197,9 @@ def restore_training_state(checkpoint, model, optimizer, device):
     global_step = checkpoint.get("global_step", 0)
     tokens_seen = checkpoint.get("tokens_seen")
 
-    return start_epoch, global_step, tokens_seen
+    saved_trainer_config = checkpoint.get("trainer_config")
+
+    return start_epoch, global_step, tokens_seen, saved_trainer_config
 
 
 def main():
@@ -192,6 +221,7 @@ def main():
         trainer_config.resume_path = args.resume_path
     trainer_config.auto_resume = args.resume == "latest"
     trainer_config.warmup_tokens = 0
+    trainer_config.schedule_start_tokens = 0
    
 
     set_seed(trainer_config.seed)
@@ -236,10 +266,11 @@ def main():
     start_epoch = 0
     global_step = 0
     tokens_seen = 0
+    saved_trainer_config = None
 
     if checkpoint_path is not None and checkpoint_path.exists():
         checkpoint = load_checkpoint(checkpoint_path, device)
-        start_epoch, global_step, tokens_seen = restore_training_state(checkpoint, model, optimizer, device)
+        start_epoch, global_step, tokens_seen, saved_trainer_config = restore_training_state(checkpoint, model, optimizer, device)
         if tokens_seen is None:
             tokens_seen = estimate_tokens_seen_from_epoch(start_epoch, trainer_config, model_config)
             print(f"warning: checkpoint missing tokens_seen; estimated tokens_seen={tokens_seen}")
@@ -250,14 +281,50 @@ def main():
     else:
         print("starting training from scratch")
 
+    if args.preserve_lr_schedule and saved_trainer_config:
+        saved_learning_rate = saved_trainer_config.get("learning_rate")
+        saved_lr_final = saved_trainer_config.get("lr_final")
+        saved_final_tokens = saved_trainer_config.get("final_tokens")
+        saved_warmup_tokens = saved_trainer_config.get("warmup_tokens")
+        saved_schedule_start_tokens = saved_trainer_config.get("schedule_start_tokens")
+
+        if saved_learning_rate is not None:
+            trainer_config.learning_rate = saved_learning_rate
+        if saved_lr_final is not None:
+            trainer_config.lr_final = saved_lr_final
+        if saved_warmup_tokens is not None:
+            trainer_config.warmup_tokens = saved_warmup_tokens
+        if saved_schedule_start_tokens is not None:
+            trainer_config.schedule_start_tokens = saved_schedule_start_tokens
+        if saved_final_tokens is not None:
+            trainer_config.final_tokens = saved_final_tokens
+            print(
+                f"preserving LR schedule from checkpoint: learning_rate={trainer_config.learning_rate:.6e}, "
+                f"lr_final={trainer_config.lr_final:.6e}, "
+                f"schedule_start_tokens={trainer_config.schedule_start_tokens}, "
+                f"final_tokens={trainer_config.final_tokens}"
+            )
+
+    if args.learning_rate is not None:
+        trainer_config.learning_rate = args.learning_rate
+    if args.lr_final is not None:
+        trainer_config.lr_final = args.lr_final
+
     tokens_per_epoch = (
         MAX_TRAIN_STEPS_PER_EPOCH
         * trainer_config.batch_size
         * model_config.ctx_len
     )
-    trainer_config.final_tokens = tokens_seen + args.planned_epochs_remaining * tokens_per_epoch
+    if not (args.preserve_lr_schedule and saved_trainer_config and saved_trainer_config.get("final_tokens") is not None):
+        trainer_config.schedule_start_tokens = tokens_seen
+        trainer_config.final_tokens = tokens_seen + args.planned_epochs_remaining * tokens_per_epoch
     print(
-        f"lr schedule horizon: current tokens_seen={tokens_seen}, "
+        f"lr schedule params: learning_rate={trainer_config.learning_rate:.6e}, "
+        f"lr_final={trainer_config.lr_final:.6e}"
+    )
+    print(
+        f"lr schedule horizon: schedule_start_tokens={trainer_config.schedule_start_tokens}, "
+        f"current tokens_seen={tokens_seen}, "
         f"planned_epochs_remaining={args.planned_epochs_remaining}, "
         f"final_tokens={trainer_config.final_tokens}"
     )

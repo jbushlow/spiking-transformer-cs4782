@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from spikingjelly.activation_based import functional
 from tqdm import tqdm
 
@@ -14,6 +14,9 @@ from model import SpikingGPT
 
 E_MAC_PJ = 4.5
 E_AC_PJ = 0.9
+PAPER_ENERGY_T = 3072
+PAPER_ENERGY_D = 512
+PAPER_ENERGY_R_HAT = 0.15
 
 CHECKPOINT_PATTERN = re.compile(r"^epoch_(\d+)(?:_step_(\d+))?\.pt$")
 
@@ -28,16 +31,53 @@ TABLE2_BASELINES = [
     ("SpikeGPT 46M (paper)", "yes", "12", "512", "1024", "1.113", "1.283", r"$\mathcal{O}(T \cdot d)$", "46.1M"),
 ]
 
+TABLE2_SUMMARY_METHODS = {
+    "Transformer",
+    "Performer",
+    "Stacked LSTM",
+    "SHA-LSTM (no attention)",
+    "SpikeGPT 46M (paper)",
+}
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", default=None, help="Path to a checkpoint. Defaults to latest in results/checkpoints.")
+    parser.add_argument("--checkpoint", default=None, help="Path to a checkpoint. Defaults to latest full epoch checkpoint in results/checkpoints.")
     parser.add_argument("--output-dir", default="results/latex_tables", help="Where to write the LaTeX tables.")
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--max-test-steps", type=int, default=None, help="Optional cap on evaluation batches. Default evaluates the full dataset.")
+    parser.add_argument("--max-test-steps", type=int, default=None, help="Optional cap on evaluation batches. Default evaluates the full selected split.")
     parser.add_argument("--progress-every", type=int, default=10, help="Print evaluation progress every N batches.")
     parser.add_argument("--include-train-bpc", action="store_true", help="Also evaluate the training split. By default only test BPC is computed.")
+    parser.add_argument("--stride", type=int, default=None, help="Stride in bytes between evaluation windows. Defaults to ctx_len for non-overlapping chunks.")
+    parser.add_argument("--energy-only", action="store_true", help="Only generate the energy table using a short evaluation run to estimate spike activity.")
+    parser.add_argument("--bpc-only", action="store_true", help="Only generate the Enwik8 BPC table and summary, skipping energy-table generation.")
     return parser.parse_args()
+
+
+class StridedEnwik8Dataset(Dataset):
+    def __init__(self, path, ctx_len, stride=None):
+        with open(path, "rb") as handle:
+            data = handle.read()
+        self.data = torch.tensor(list(data), dtype=torch.long)
+        self.ctx_len = ctx_len
+        self.stride = stride if stride is not None else ctx_len
+        if self.stride <= 0:
+            raise ValueError("stride must be positive")
+
+        max_start = len(self.data) - (self.ctx_len + 1)
+        if max_start < 0:
+            self.starts = []
+        else:
+            self.starts = list(range(0, max_start + 1, self.stride))
+
+    def __len__(self):
+        return len(self.starts)
+
+    def __getitem__(self, index):
+        start = self.starts[index]
+        x = self.data[start:start + self.ctx_len]
+        y = self.data[start + 1:start + self.ctx_len + 1]
+        return x, y
 
 
 def evaluate(model, loader, device, max_steps=None, progress_every=10, split_name="eval"):
@@ -88,6 +128,13 @@ def find_checkpoint(explicit_path):
     checkpoint_files = sorted(checkpoint_dir.glob("*.pt"), key=checkpoint_sort_key)
     if not checkpoint_files:
         raise FileNotFoundError(f"No checkpoint files found in {checkpoint_dir}")
+
+    full_epoch_checkpoints = [
+        path for path in checkpoint_files
+        if CHECKPOINT_PATTERN.match(path.name) and CHECKPOINT_PATTERN.match(path.name).group(2) is None
+    ]
+    if full_epoch_checkpoints:
+        return full_epoch_checkpoints[-1]
     return checkpoint_files[-1]
 
 
@@ -110,6 +157,12 @@ def ratio_latex(numerator, denominator):
     if denominator == 0:
         return "-"
     return f"{numerator / denominator:.2f}x"
+
+
+def bpc_to_loss_str(bpc_str):
+    if bpc_str == "-":
+        return "-"
+    return f"{float(bpc_str) * math.log(2):.3f}"
 
 
 def compute_energy_metrics(T, d, r_hat):
@@ -194,6 +247,54 @@ Overall & - & - & - & ${sci_latex(m['vanilla_overall'])}$ & ${sci_latex(m['spike
 """
 
 
+def build_energy_summary_table_latex(model_config, r_hat):
+    paper_metrics = compute_energy_metrics(PAPER_ENERGY_T, PAPER_ENERGY_D, PAPER_ENERGY_R_HAT)
+    ours_metrics = compute_energy_metrics(model_config.ctx_len, model_config.n_embd, r_hat)
+
+    rows = [
+        (
+            "SpikeGPT 46M (paper)",
+            str(PAPER_ENERGY_T),
+            str(PAPER_ENERGY_D),
+            f"{PAPER_ENERGY_R_HAT:.2f}",
+            sci_latex(paper_metrics["vanilla_overall"]),
+            sci_latex(paper_metrics["spike_overall"]),
+            ratio_latex(paper_metrics["vanilla_overall"], paper_metrics["spike_overall"]),
+        ),
+        (
+            "SpikeGPT 46M (ours)",
+            str(model_config.ctx_len),
+            str(model_config.n_embd),
+            f"{r_hat:.4f}",
+            sci_latex(ours_metrics["vanilla_overall"]),
+            sci_latex(ours_metrics["spike_overall"]),
+            ratio_latex(ours_metrics["vanilla_overall"], ours_metrics["spike_overall"]),
+        ),
+    ]
+
+    body = "\n".join(
+        f"{model_name} & {T} & {d} & {rhat} & ${vanilla}$ & ${spike}$ & {ratio} \\\\"
+        for model_name, T, d, rhat, vanilla, spike, ratio in rows
+    )
+
+    return rf"""\begin{{table*}}[t]
+\centering
+\caption{{Simplified energy comparison for SpikeGPT 46M. The paper row uses the published energy-table setting $T={PAPER_ENERGY_T}$, $d={PAPER_ENERGY_D}$, and $\hat{{R}}={PAPER_ENERGY_R_HAT:.2f}$. The 'ours' row uses the measured checkpoint setting $T={model_config.ctx_len}$, $d={model_config.n_embd}$, and $\hat{{R}}={r_hat:.4f}$. Lower SpikeGPT energy and higher V/S ratio indicate stronger efficiency relative to the dense baseline.}}
+\small
+\setlength{{\tabcolsep}}{{4pt}}
+\resizebox{{\textwidth}}{{!}}{{%
+\begin{{tabular}}{{lcccccc}}
+\hline
+Model & $T$ & $d$ & $\hat{{R}}$ & Vanilla GPT Overall (pJ) & SpikeGPT Overall (pJ) & V/S Ratio \\
+\hline
+{body}
+\hline
+\end{{tabular}}%
+}}
+\end{{table*}}
+"""
+
+
 def build_bpc_table_latex(model_config, train_bpc, test_bpc, params_m):
     train_bpc_str = "-" if train_bpc is None else f"{train_bpc:.3f}"
     spike_row = (
@@ -232,8 +333,112 @@ Method & Spiking & $L$ & $d$ & $T$ & Train BPC & Test BPC & Complexity & Params.
 """
 
 
+def build_loss_bpc_table_latex(model_config, train_loss, train_bpc, test_loss, test_bpc, params_m):
+    train_loss_str = "-" if train_loss is None else f"{train_loss:.3f}"
+    train_bpc_str = "-" if train_bpc is None else f"{train_bpc:.3f}"
+    spike_row = (
+        "SpikeGPT 46M (ours)",
+        "yes",
+        str(model_config.n_layer),
+        str(model_config.n_embd),
+        str(model_config.ctx_len),
+        train_loss_str,
+        train_bpc_str,
+        f"{test_loss:.3f}",
+        f"{test_bpc:.3f}",
+        r"$\mathcal{O}(T \cdot d)$",
+        f"{params_m:.1f}M",
+    )
+
+    baseline_rows = [
+        (
+            method,
+            spiking,
+            L,
+            d,
+            T,
+            bpc_to_loss_str(train_bpc_str),
+            train_bpc_str,
+            bpc_to_loss_str(test_bpc_str),
+            test_bpc_str,
+            complexity,
+            params,
+        )
+        for method, spiking, L, d, T, train_bpc_str, test_bpc_str, complexity, params in TABLE2_BASELINES
+    ]
+
+    rows = baseline_rows + [spike_row]
+    body = "\n".join(
+        f"{method} & {spiking} & {L} & {d} & {T} & {train_loss_val} & {train_bpc_val} & {test_loss_val} & {test_bpc_val} & {complexity} & {params} \\\\"
+        for method, spiking, L, d, T, train_loss_val, train_bpc_val, test_loss_val, test_bpc_val, complexity, params in rows
+    )
+
+    return rf"""\begin{{table*}}[t]
+\centering
+\caption{{Enwik8 results reported in both cross-entropy loss and bits per character (BPC). Lower is better. Loss values are in nats/character; BPC is obtained by dividing loss by $\ln 2$. The SpikeGPT row below is generated from the evaluated checkpoint.}}
+\small
+\setlength{{\tabcolsep}}{{3pt}}
+\resizebox{{\textwidth}}{{!}}{{%
+\begin{{tabular}}{{lcccccccccc}}
+\hline
+Method & Spiking & $L$ & $d$ & $T$ & Train Loss & Train BPC & Test Loss & Test BPC & Complexity & Params. \\
+\hline
+{body}
+\hline
+\end{{tabular}}%
+}}
+\end{{table*}}
+"""
+
+
+def build_bpc_summary_table_latex(model_config, train_bpc, test_bpc):
+    spike_row = (
+        "SpikeGPT 46M (ours)",
+        "-" if train_bpc is None else f"{train_bpc:.3f}",
+        f"{test_bpc:.3f}",
+        r"$\mathcal{O}(T \cdot d)$",
+    )
+
+    baseline_rows = [
+        (
+            method,
+            train_bpc_str,
+            test_bpc_str,
+            complexity,
+        )
+        for method, _spiking, _L, _d, _T, train_bpc_str, test_bpc_str, complexity, _params in TABLE2_BASELINES
+        if method in TABLE2_SUMMARY_METHODS
+    ]
+
+    rows = baseline_rows + [spike_row]
+    body = "\n".join(
+        f"{method} & {train_bpc_val} & {test_bpc_val} & {complexity} \\\\"
+        for method, train_bpc_val, test_bpc_val, complexity in rows
+    )
+
+    return rf"""\begin{{table*}}[t]
+\centering
+\caption{{Compact Enwik8 summary reported in bits per character (BPC). Lower is better. The SpikeGPT row below is generated from the evaluated checkpoint.}}
+\small
+\setlength{{\tabcolsep}}{{5pt}}
+\resizebox{{0.8\textwidth}}{{!}}{{%
+\begin{{tabular}}{{lccc}}
+\hline
+Method & Train BPC & Test BPC & Complexity \\
+\hline
+{body}
+\hline
+\end{{tabular}}%
+}}
+\end{{table*}}
+"""
+
+
 def main():
     args = parse_args()
+    if args.energy_only and args.bpc_only:
+        raise ValueError("--energy-only and --bpc-only cannot be used together.")
+
     checkpoint_path = find_checkpoint(args.checkpoint)
     print("using checkpoint:", checkpoint_path.name)
 
@@ -241,9 +446,10 @@ def main():
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model_config = build_model_config(checkpoint)
     trainer_config = TrainerConfig(batch_size=args.batch_size)
+    eval_stride = args.stride if args.stride is not None else model_config.ctx_len
 
     data_dir = Path(__file__).resolve().parent.parent / "data" / "enwik8_split"
-    test_dataset = Enwik8Dataset(data_dir / "test.txt", model_config.ctx_len)
+    test_dataset = StridedEnwik8Dataset(data_dir / "test.txt", model_config.ctx_len, stride=eval_stride)
     test_loader = DataLoader(
         test_dataset,
         batch_size=trainer_config.batch_size,
@@ -257,9 +463,10 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     params_m = num_params / 1e6
 
+    train_loss = None
     train_bpc = None
-    if args.include_train_bpc:
-        train_dataset = Enwik8Dataset(data_dir / "train.txt", model_config.ctx_len)
+    if args.include_train_bpc and not args.energy_only:
+        train_dataset = StridedEnwik8Dataset(data_dir / "train.txt", model_config.ctx_len, stride=eval_stride)
         train_loader = DataLoader(
             train_dataset,
             batch_size=trainer_config.batch_size,
@@ -277,16 +484,31 @@ def main():
         )
         train_bpc = train_loss / math.log(2)
 
+    eval_max_steps = args.max_test_steps
+    if args.energy_only and eval_max_steps is None:
+        eval_max_steps = 1
+
     model.reset_spike_stats()
-    test_loss = evaluate(
-        model,
-        test_loader,
-        device,
-        max_steps=args.max_test_steps,
-        progress_every=args.progress_every,
-        split_name="test",
-    )
-    test_bpc = test_loss / math.log(2)
+    test_bpc = None
+    if args.energy_only:
+        _ = evaluate(
+            model,
+            test_loader,
+            device,
+            max_steps=eval_max_steps,
+            progress_every=args.progress_every,
+            split_name="energy",
+        )
+    else:
+        test_loss = evaluate(
+            model,
+            test_loader,
+            device,
+            max_steps=eval_max_steps,
+            progress_every=args.progress_every,
+            split_name="test",
+        )
+        test_bpc = test_loss / math.log(2)
 
     spike_nonzero, spike_total = model.get_spike_stats()
     r_hat = spike_nonzero / max(spike_total, 1)
@@ -295,11 +517,23 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     energy_table_path = output_dir / "table1_energy.tex"
+    energy_summary_table_path = output_dir / "table1_energy_summary.tex"
     bpc_table_path = output_dir / "table2_enwik8.tex"
+    loss_bpc_table_path = output_dir / "table2_enwik8_loss_bpc.tex"
+    loss_bpc_summary_table_path = output_dir / "table2_enwik8_summary.tex"
     summary_path = output_dir / "metrics_summary.txt"
 
-    energy_table_path.write_text(build_energy_table_latex(model_config, r_hat))
-    bpc_table_path.write_text(build_bpc_table_latex(model_config, train_bpc, test_bpc, params_m))
+    if not args.bpc_only:
+        energy_table_path.write_text(build_energy_table_latex(model_config, r_hat))
+        energy_summary_table_path.write_text(build_energy_summary_table_latex(model_config, r_hat))
+    if not args.energy_only:
+        bpc_table_path.write_text(build_bpc_table_latex(model_config, train_bpc, test_bpc, params_m))
+        loss_bpc_table_path.write_text(
+            build_loss_bpc_table_latex(model_config, train_loss, train_bpc, test_loss, test_bpc, params_m)
+        )
+        loss_bpc_summary_table_path.write_text(
+            build_bpc_summary_table_latex(model_config, train_bpc, test_bpc)
+        )
     summary_path.write_text(
         "\n".join(
             [
@@ -307,12 +541,16 @@ def main():
                 f"ctx_len={model_config.ctx_len}",
                 f"n_embd={model_config.n_embd}",
                 f"n_layer={model_config.n_layer}",
+                f"train_loss={'not_computed' if train_loss is None else f'{train_loss:.6f}'}",
                 f"train_bpc={'not_computed' if train_bpc is None else f'{train_bpc:.6f}'}",
-                f"test_bpc={test_bpc:.6f}",
+                f"test_loss={'not_computed' if test_bpc is None else f'{test_loss:.6f}'}",
+                f"test_bpc={'not_computed' if test_bpc is None else f'{test_bpc:.6f}'}",
                 f"r_hat={r_hat:.6f}",
                 f"params_m={params_m:.6f}",
-                f"max_test_steps={'full' if args.max_test_steps is None else args.max_test_steps}",
+                f"max_test_steps={'full' if eval_max_steps is None else eval_max_steps}",
                 f"include_train_bpc={args.include_train_bpc}",
+                f"stride={eval_stride}",
+                f"energy_only={args.energy_only}",
             ]
         )
         + "\n"
@@ -320,13 +558,21 @@ def main():
 
     if train_bpc is not None:
         print(f"train_bpc={train_bpc:.4f}")
-    else:
+    elif not args.energy_only:
         print("train_bpc=not computed")
-    print(f"test_bpc={test_bpc:.4f}")
+    if test_bpc is not None:
+        print(f"test_bpc={test_bpc:.4f}")
+    elif args.energy_only:
+        print("test_bpc=skipped (energy-only mode)")
     print(f"R_hat={r_hat:.6f}")
     print(f"params_m={params_m:.4f}")
-    print(f"wrote {energy_table_path}")
-    print(f"wrote {bpc_table_path}")
+    if not args.bpc_only:
+        print(f"wrote {energy_table_path}")
+        print(f"wrote {energy_summary_table_path}")
+    if not args.energy_only:
+        print(f"wrote {bpc_table_path}")
+        print(f"wrote {loss_bpc_table_path}")
+        print(f"wrote {loss_bpc_summary_table_path}")
     print(f"wrote {summary_path}")
 
 

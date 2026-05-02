@@ -1,6 +1,9 @@
 \begin{table*}[t]
 \centering
 \caption{Enwik8 results measured in bits per character (BPC). Lower is better. The SpikeGPT row below is generated from the evaluated checkpoint.}
+\small
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lcccccccc}
 \hline
 Method & Spiking & $L$ & $d$ & $T$ & Train BPC & Test BPC & Complexity & Params. \\
@@ -12,7 +15,9 @@ Linear Transformer & no & 12 & 512 & 1024 & 0.981 & 1.207 & $\mathcal{O}(T \cdot
 Performer & no & 12 & 512 & 1024 & 1.002 & 1.199 & $\mathcal{O}(T \cdot d^2 \log d)$ & 43.0M \\
 Stacked LSTM & no & 7 & - & - & 1.420 & 1.670 & $\mathcal{O}(T \cdot d^2)$ & - \\
 SHA-LSTM (no attention) & no & 4 & 1024 & 1024 & - & 1.330 & $\mathcal{O}(T \cdot d^2)$ & - \\
-SpikeGPT 46M & yes & 12 & 512 & 1024 & 4.196 & 2.020 & $\mathcal{O}(T \cdot d)$ & 41.2M \\
+SpikeGPT 46M (paper) & yes & 12 & 512 & 1024 & 1.113 & 1.283 & $\mathcal{O}(T \cdot d)$ & 46.1M \\
+SpikeGPT 46M (ours) & yes & 12 & 512 & 1024 & 1.511 & 1.628 & $\mathcal{O}(T \cdot d)$ & 41.2M \\
 \hline
-\end{tabular}
+\end{tabular}%
+}
 \end{table*}

@@ -1,0 +1,20 @@
+\begin{table*}[t]
+\centering
+\caption{Compact Enwik8 summary reported in bits per character (BPC). Lower is better. The SpikeGPT row below is generated from the evaluated checkpoint.}
+\small
+\setlength{\tabcolsep}{5pt}
+\resizebox{0.8\textwidth}{!}{%
+\begin{tabular}{lccc}
+\hline
+Method & Train BPC & Test BPC & Complexity \\
+\hline
+Transformer & 0.977 & 1.137 & $\mathcal{O}(T^2 \cdot d)$ \\
+Performer & 1.002 & 1.199 & $\mathcal{O}(T \cdot d^2 \log d)$ \\
+Stacked LSTM & 1.420 & 1.670 & $\mathcal{O}(T \cdot d^2)$ \\
+SHA-LSTM (no attention) & - & 1.330 & $\mathcal{O}(T \cdot d^2)$ \\
+SpikeGPT 46M (paper) & 1.113 & 1.283 & $\mathcal{O}(T \cdot d)$ \\
+SpikeGPT 46M (ours) & 1.511 & 1.628 & $\mathcal{O}(T \cdot d)$ \\
+\hline
+\end{tabular}%
+}
+\end{table*}

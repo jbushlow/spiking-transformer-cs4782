@@ -1,0 +1,23 @@
+\begin{table*}[t]
+\centering
+\caption{Enwik8 results reported in both cross-entropy loss and bits per character (BPC). Lower is better. Loss values are in nats/character; BPC is obtained by dividing loss by $\ln 2$. The SpikeGPT row below is generated from the evaluated checkpoint.}
+\small
+\setlength{\tabcolsep}{3pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccccc}
+\hline
+Method & Spiking & $L$ & $d$ & $T$ & Train Loss & Train BPC & Test Loss & Test BPC & Complexity & Params. \\
+\hline
+Transformer & no & 12 & 512 & 1024 & 0.677 & 0.977 & 0.788 & 1.137 & $\mathcal{O}(T^2 \cdot d)$ & 43.0M \\
+Reformer & no & 12 & 512 & 1024 & 0.721 & 1.040 & 0.828 & 1.195 & $\mathcal{O}(T \log T \cdot d)$ & 40.1M \\
+Synthesizer & no & 12 & 512 & 1024 & 0.689 & 0.994 & 0.900 & 1.298 & $\mathcal{O}(T \cdot d^2)$ & 42.8M \\
+Linear Transformer & no & 12 & 512 & 1024 & 0.680 & 0.981 & 0.837 & 1.207 & $\mathcal{O}(T \cdot d^2)$ & 43.0M \\
+Performer & no & 12 & 512 & 1024 & 0.695 & 1.002 & 0.831 & 1.199 & $\mathcal{O}(T \cdot d^2 \log d)$ & 43.0M \\
+Stacked LSTM & no & 7 & - & - & 0.984 & 1.420 & 1.158 & 1.670 & $\mathcal{O}(T \cdot d^2)$ & - \\
+SHA-LSTM (no attention) & no & 4 & 1024 & 1024 & - & - & 0.922 & 1.330 & $\mathcal{O}(T \cdot d^2)$ & - \\
+SpikeGPT 46M (paper) & yes & 12 & 512 & 1024 & 0.771 & 1.113 & 0.889 & 1.283 & $\mathcal{O}(T \cdot d)$ & 46.1M \\
+SpikeGPT 46M (ours) & yes & 12 & 512 & 1024 & 1.047 & 1.511 & 1.128 & 1.628 & $\mathcal{O}(T \cdot d)$ & 41.2M \\
+\hline
+\end{tabular}%
+}
+\end{table*}
