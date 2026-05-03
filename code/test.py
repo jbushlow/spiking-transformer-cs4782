@@ -17,6 +17,9 @@ E_AC_PJ = 0.9
 PAPER_ENERGY_T = 3072
 PAPER_ENERGY_D = 512
 PAPER_ENERGY_R_HAT = 0.15
+PAPER_ENERGY_OVERALL_VANILLA = r"3.29 \times 10^{10}"
+PAPER_ENERGY_OVERALL_SPIKE = r"1.02 \times 10^{9}"
+PAPER_ENERGY_OVERALL_RATIO = "32.2x"
 
 CHECKPOINT_PATTERN = re.compile(r"^epoch_(\d+)(?:_step_(\d+))?\.pt$")
 
@@ -166,14 +169,15 @@ def bpc_to_loss_str(bpc_str):
 
 
 def compute_energy_metrics(T, d, r_hat):
-    fl_mlp1 = d * (4 * d)
-    fl_mlp2 = d * d
-    fl_mlp3 = (4 * d) * d
+    # Match the accounting used in SpikeGPT Table 1.
+    fl_mlp1 = T * d * d
+    fl_mlp2 = T * d * (4 * d)
+    fl_mlp3 = T * d * d
 
     vanilla_qkv = E_MAC_PJ * 3 * T * (d ** 2)
     spike_qkv = E_AC_PJ * r_hat * 3 * T * (d ** 2)
 
-    vanilla_attn = E_MAC_PJ * 2 * (T ** 2) * d
+    vanilla_attn = E_MAC_PJ * 2 * (T ** 2)
     spike_attn = E_MAC_PJ * 7 * T * d
 
     vanilla_scale = E_MAC_PJ * (T ** 2)
@@ -232,13 +236,13 @@ def build_energy_table_latex(model_config, r_hat):
 Module & Operation & Formula & Formula & Vanilla GPT & SpikeGPT & V/S \\
 \hline
 Attention & $Q/R, K, V$ & $E_{{MAC}} \cdot 3Td^2$ & $E_{{AC}} \cdot \hat{{R}} \cdot 3Td^2$ & ${sci_latex(m['vanilla_qkv'])}$ & ${sci_latex(m['spike_qkv'])}$ & {ratio_latex(m['vanilla_qkv'], m['spike_qkv'])} \\
-Attention & $f(Q/R,K,V)$ & $E_{{MAC}} \cdot 2T^2d$ & $E_{{MAC}} \cdot 7Td$ & ${sci_latex(m['vanilla_attn'])}$ & ${sci_latex(m['spike_attn'])}$ & {ratio_latex(m['vanilla_attn'], m['spike_attn'])} \\
+Attention & $f(Q/R,K,V)$ & $E_{{MAC}} \cdot 2T^2$ & $E_{{MAC}} \cdot 7Td$ & ${sci_latex(m['vanilla_attn'])}$ & ${sci_latex(m['spike_attn'])}$ & {ratio_latex(m['vanilla_attn'], m['spike_attn'])} \\
 Attention & Scale & $E_{{MAC}} \cdot T^2$ & - & ${sci_latex(m['vanilla_scale'])}$ & - & - \\
 Attention & Softmax & $E_{{MAC}} \cdot 2T^2$ & - & ${sci_latex(m['vanilla_softmax'])}$ & - & - \\
 \hline
-FFN & Layer 1 & $E_{{MAC}} \cdot FL_{{MLP1}}$ & $E_{{AC}} \cdot \hat{{R}} \cdot FL_{{MLP1}}$ & ${sci_latex(m['vanilla_ffn1'])}$ & ${sci_latex(m['spike_ffn1'])}$ & {ratio_latex(m['vanilla_ffn1'], m['spike_ffn1'])} \\
-FFN & Layer 2 & $E_{{MAC}} \cdot FL_{{MLP2}}$ & $E_{{AC}} \cdot \hat{{R}} \cdot FL_{{MLP2}}$ & ${sci_latex(m['vanilla_ffn2'])}$ & ${sci_latex(m['spike_ffn2'])}$ & {ratio_latex(m['vanilla_ffn2'], m['spike_ffn2'])} \\
-FFN & Layer 3 & $E_{{MAC}} \cdot FL_{{MLP3}}$ & $E_{{AC}} \cdot \hat{{R}} \cdot FL_{{MLP3}}$ & ${sci_latex(m['vanilla_ffn3'])}$ & ${sci_latex(m['spike_ffn3'])}$ & {ratio_latex(m['vanilla_ffn3'], m['spike_ffn3'])} \\
+FFN & Layer 1 & $E_{{MAC}} \cdot Td^2$ & $E_{{AC}} \cdot \hat{{R}} \cdot Td^2$ & ${sci_latex(m['vanilla_ffn1'])}$ & ${sci_latex(m['spike_ffn1'])}$ & {ratio_latex(m['vanilla_ffn1'], m['spike_ffn1'])} \\
+FFN & Layer 2 & $E_{{MAC}} \cdot T d (4d)$ & $E_{{AC}} \cdot \hat{{R}} \cdot T d (4d)$ & ${sci_latex(m['vanilla_ffn2'])}$ & ${sci_latex(m['spike_ffn2'])}$ & {ratio_latex(m['vanilla_ffn2'], m['spike_ffn2'])} \\
+FFN & Layer 3 & $E_{{MAC}} \cdot Td^2$ & $E_{{AC}} \cdot \hat{{R}} \cdot Td^2$ & ${sci_latex(m['vanilla_ffn3'])}$ & ${sci_latex(m['spike_ffn3'])}$ & {ratio_latex(m['vanilla_ffn3'], m['spike_ffn3'])} \\
 \hline
 Overall & - & - & - & ${sci_latex(m['vanilla_overall'])}$ & ${sci_latex(m['spike_overall'])}$ & {ratio_latex(m['vanilla_overall'], m['spike_overall'])} \\
 \hline
@@ -248,7 +252,6 @@ Overall & - & - & - & ${sci_latex(m['vanilla_overall'])}$ & ${sci_latex(m['spike
 
 
 def build_energy_summary_table_latex(model_config, r_hat):
-    paper_metrics = compute_energy_metrics(PAPER_ENERGY_T, PAPER_ENERGY_D, PAPER_ENERGY_R_HAT)
     ours_metrics = compute_energy_metrics(model_config.ctx_len, model_config.n_embd, r_hat)
 
     rows = [
@@ -257,9 +260,9 @@ def build_energy_summary_table_latex(model_config, r_hat):
             str(PAPER_ENERGY_T),
             str(PAPER_ENERGY_D),
             f"{PAPER_ENERGY_R_HAT:.2f}",
-            sci_latex(paper_metrics["vanilla_overall"]),
-            sci_latex(paper_metrics["spike_overall"]),
-            ratio_latex(paper_metrics["vanilla_overall"], paper_metrics["spike_overall"]),
+            PAPER_ENERGY_OVERALL_VANILLA,
+            PAPER_ENERGY_OVERALL_SPIKE,
+            PAPER_ENERGY_OVERALL_RATIO,
         ),
         (
             "SpikeGPT 46M (ours)",
@@ -279,7 +282,7 @@ def build_energy_summary_table_latex(model_config, r_hat):
 
     return rf"""\begin{{table*}}[t]
 \centering
-\caption{{Simplified energy comparison for SpikeGPT 46M. The paper row uses the published energy-table setting $T={PAPER_ENERGY_T}$, $d={PAPER_ENERGY_D}$, and $\hat{{R}}={PAPER_ENERGY_R_HAT:.2f}$. The 'ours' row uses the measured checkpoint setting $T={model_config.ctx_len}$, $d={model_config.n_embd}$, and $\hat{{R}}={r_hat:.4f}$. Lower SpikeGPT energy and higher V/S ratio indicate stronger efficiency relative to the dense baseline.}}
+\caption{{Simplified energy comparison for SpikeGPT 46M. The paper row uses the published Table 1 values directly with $T={PAPER_ENERGY_T}$, $d={PAPER_ENERGY_D}$, and $\hat{{R}}={PAPER_ENERGY_R_HAT:.2f}$. The 'ours' row uses the measured checkpoint setting $T={model_config.ctx_len}$, $d={model_config.n_embd}$, and $\hat{{R}}={r_hat:.4f}$. Lower SpikeGPT energy and higher V/S ratio indicate stronger efficiency relative to the dense baseline.}}
 \small
 \setlength{{\tabcolsep}}{{4pt}}
 \resizebox{{\textwidth}}{{!}}{{%

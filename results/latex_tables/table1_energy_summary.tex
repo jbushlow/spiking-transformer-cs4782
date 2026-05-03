@@ -1,6 +1,6 @@
 \begin{table*}[t]
 \centering
-\caption{Simplified energy comparison for SpikeGPT 46M. The paper row uses the published energy-table setting $T=3072$, $d=512$, and $\hat{R}=0.15$. The 'ours' row uses the measured checkpoint setting $T=1024$, $d=512$, and $\hat{R}=0.1307$. Lower SpikeGPT energy and higher V/S ratio indicate stronger efficiency relative to the dense baseline.}
+\caption{Simplified energy comparison for SpikeGPT 46M. The paper row uses the published Table 1 values directly with $T=3072$, $d=512$, and $\hat{R}=0.15$. The 'ours' row uses the measured checkpoint setting $T=1024$, $d=512$, and $\hat{R}=0.1309$. Lower SpikeGPT energy and higher V/S ratio indicate stronger efficiency relative to the dense baseline.}
 \small
 \setlength{\tabcolsep}{4pt}
 \resizebox{\textwidth}{!}{%
@@ -8,8 +8,8 @@
 \hline
 Model & $T$ & $d$ & $\hat{R}$ & Vanilla GPT Overall (pJ) & SpikeGPT Overall (pJ) & V/S Ratio \\
 \hline
-SpikeGPT 46M (paper) & 3072 & 512 & 0.15 & $5.45 \times 10^{10}$ & $3.76 \times 10^{8}$ & 144.93x \\
-SpikeGPT 46M (ours) & 1024 & 512 & 0.1307 & $8.48 \times 10^{9}$ & $1.12 \times 10^{8}$ & 76.06x \\
+SpikeGPT 46M (paper) & 3072 & 512 & 0.15 & $3.29 \times 10^{10}$ & $1.02 \times 10^{9}$ & 32.2x \\
+SpikeGPT 46M (ours) & 1024 & 512 & 0.1309 & $1.09 \times 10^{10}$ & $3.01 \times 10^{8}$ & 36.19x \\
 \hline
 \end{tabular}%
 }
