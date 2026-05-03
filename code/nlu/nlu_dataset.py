@@ -32,24 +32,36 @@ class SST5Dataset(Dataset):
 
 
 class MRDataset(Dataset):
+    _SPLITS = None
+
+    @classmethod
+    def _get_splits(cls):
+        if cls._SPLITS is None:
+            data = load_dataset(
+                "csv",
+                data_files="hf://datasets/sh0416/mr/train.csv",
+                column_names=["text", "label"],
+                header=None,
+                split="train",
+            )
+            split_data = data.train_test_split(test_size=0.2, seed=42)
+            cls._SPLITS = {
+                "train": split_data["train"],
+                "validation": split_data["test"],
+                "test": load_dataset(
+                    "csv",
+                    data_files="hf://datasets/sh0416/mr/test.csv",
+                    column_names=["text", "label"],
+                    header=None,
+                    split="train",
+                ),
+            }
+        return cls._SPLITS
+
     def __init__(self, split='train'):
-        hf_split = 'test' if split == 'validation' else 'train'
-        # sh0416/mr CSVs have no header row; load each file directly with explicit column names
-        data = load_dataset(
-            "csv",
-            data_files=f"hf://datasets/sh0416/mr/{hf_split}.csv",
-            column_names=["text", "label"],
-            header=None,
-            split="train",
-        )
+        data = self._get_splits()[split]
         self.texts = [x["text"] for x in data]
         self.labels = [int(x["label"]) for x in data]
-
-        unique = set(self.labels)
-        counts = {v: self.labels.count(v) for v in sorted(unique)}
-        print(f"[MRDataset/{hf_split}] {len(self.texts)} samples, label distribution: {counts}")
-        print(f"  sample[0]: label={self.labels[0]}  text={self.texts[0][:80]!r}")
-        print(f"  sample[1]: label={self.labels[1]}  text={self.texts[1][:80]!r}")
 
     def __len__(self):
         return len(self.texts)
