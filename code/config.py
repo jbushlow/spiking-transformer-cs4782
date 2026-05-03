@@ -64,6 +64,9 @@ def get_spikegpt_46m_config(ctx_len=1024):
         ctx_len=ctx_len,
         n_embd=512,
         n_layer=12,
+        lif_beta=0.5,
+        lif_threshold=1.0,
+        lif_alpha=2.0,
     )
 
 
@@ -72,6 +75,9 @@ def get_spikegpt_216m_config(ctx_len=1024):
         ctx_len=ctx_len,
         n_embd=768,
         n_layer=24,
+        lif_beta=0.5,
+        lif_threshold=1.0,
+        lif_alpha=2.0,
     )
 
 
@@ -80,4 +86,7 @@ def get_spikegpt_colab_config(ctx_len=256):
         ctx_len=ctx_len,
         n_embd=384,
         n_layer=6,
+        lif_beta=0.5,
+        lif_threshold=1.0,
+        lif_alpha=2.0,
     )
