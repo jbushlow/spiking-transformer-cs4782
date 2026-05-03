@@ -17,6 +17,8 @@ def main():
     parser.add_argument("--checkpoint", required=True, help="LM checkpoint to initialize the 46M backbone")
     parser.add_argument("--output_dir", default="results/nlu_checkpoints/sst2_46m")
     parser.add_argument("--ctx_len", type=int, default=1024)
+    parser.add_argument("--save_steps", type=int, default=500,
+                        help="Save a resume checkpoint every N steps (0 to disable)")
     args = parser.parse_args()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -40,7 +42,8 @@ def main():
     )
     trainer_config.cls_checkpoint_dir = args.output_dir
 
-    train(model, train_dataset, val_dataset, trainer_config, device, ctx_len=gpt_config.ctx_len)
+    train(model, train_dataset, val_dataset, trainer_config, device,
+          ctx_len=gpt_config.ctx_len, save_steps=args.save_steps)
 
 
 if __name__ == "__main__":
