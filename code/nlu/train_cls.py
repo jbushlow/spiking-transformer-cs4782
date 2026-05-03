@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import csv
 import torch
 from torch.utils.data import DataLoader, Subset
 from functools import partial
@@ -21,7 +22,7 @@ def _make_epoch_loader(dataset, batch_size, collate_fn, epoch, seed=42, skip_ste
 
 
 def train_epoch(model, dataset, batch_size, collate_fn, optimizer, device,
-                epoch, max_epochs, save_steps=0, checkpoint_dir=None, start_step=0, seed=42):
+                epoch, max_epochs, save_steps=0, checkpoint_dir=None, start_step=0, seed=42, best_acc=-1.0):
     loader = _make_epoch_loader(dataset, batch_size, collate_fn, epoch, seed=seed, skip_steps=start_step)
     model.train()
     total_loss = 0.0
@@ -47,6 +48,7 @@ def train_epoch(model, dataset, batch_size, collate_fn, optimizer, device,
                 'step': global_step + 1,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'best_acc': best_acc,
             }, Path(checkpoint_dir) / 'resume.pt')
 
     return total_loss / max(n_batches, 1)
@@ -54,16 +56,19 @@ def train_epoch(model, dataset, batch_size, collate_fn, optimizer, device,
 
 @torch.no_grad()
 def evaluate(model, loader, device, desc="val"):
+    import torch.nn.functional as F
     model.eval()
     correct = total = 0
+    total_loss = 0.0
     for tokens, labels in tqdm(loader, desc=f"  [{desc}]", leave=False):
         tokens, labels = tokens.to(device), labels.to(device)
         logits = model(tokens)
         functional.reset_net(model)
+        total_loss += F.cross_entropy(logits, labels).item()
         preds = logits.argmax(dim=-1)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
-    return correct / total
+    return correct / total, total_loss / max(len(loader), 1)
 
 
 def train(model, train_dataset, val_dataset, trainer_config, device, ctx_len=1024, save_steps=500, seed=42):
@@ -84,18 +89,31 @@ def train(model, train_dataset, val_dataset, trainer_config, device, ctx_len=102
 
     checkpoint_dir = Path(getattr(trainer_config, "cls_checkpoint_dir", "results/nlu_checkpoints"))
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    log_path = checkpoint_dir / 'training_log.csv'
+    if not log_path.exists():
+        with open(log_path, 'w', newline='') as f:
+            csv.writer(f).writerow(['epoch', 'train_loss', 'val_acc', 'val_loss'])
     best_acc = -1.0
     start_epoch = 1
     start_step = 0
 
     resume_path = checkpoint_dir / 'resume.pt'
+    latest_path = checkpoint_dir / 'latest.pt'
     if resume_path.exists():
         ckpt = torch.load(resume_path, map_location=device)
         model.load_state_dict(ckpt['model_state_dict'])
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         start_epoch = ckpt['epoch']
         start_step = ckpt['step']
-        print(f"Resuming from epoch {start_epoch}, step {start_step}")
+        best_acc = ckpt.get('best_acc', -1.0)
+        print(f"Resuming from epoch {start_epoch}, step {start_step}, best_acc={best_acc:.4f}")
+    elif latest_path.exists():
+        ckpt = torch.load(latest_path, map_location=device)
+        model.load_state_dict(ckpt['model_state_dict'])
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        start_epoch = ckpt['epoch'] + 1
+        best_acc = ckpt.get('best_acc', -1.0)
+        print(f"Resuming from epoch {start_epoch}, best_acc={best_acc:.4f}")
 
     for epoch in range(start_epoch, trainer_config.max_epochs + 1):
         step_offset = start_step if epoch == start_epoch else 0
@@ -103,17 +121,20 @@ def train(model, train_dataset, val_dataset, trainer_config, device, ctx_len=102
             model, train_dataset, trainer_config.batch_size, collate, optimizer, device,
             epoch, trainer_config.max_epochs,
             save_steps=save_steps, checkpoint_dir=checkpoint_dir,
-            start_step=step_offset, seed=seed,
+            start_step=step_offset, seed=seed, best_acc=best_acc,
         )
         start_step = 0  # only skip for the resumed epoch
 
-        acc = evaluate(model, val_loader, device)
-        print(f"epoch {epoch}/{trainer_config.max_epochs}: loss={loss:.4f}  val_acc={acc:.4f}")
+        acc, val_loss = evaluate(model, val_loader, device)
+        print(f"epoch {epoch}/{trainer_config.max_epochs}: loss={loss:.4f}  val_acc={acc:.4f}  val_loss={val_loss:.4f}")
+        with open(log_path, 'a', newline='') as f:
+            csv.writer(f).writerow([epoch, f"{loss:.4f}", f"{acc:.4f}", f"{val_loss:.4f}"])
 
         epoch_ckpt = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
+            'best_acc': best_acc,
         }
         torch.save(epoch_ckpt, checkpoint_dir / 'latest.pt')
         torch.save(epoch_ckpt, checkpoint_dir / f'epoch_{epoch}.pt')

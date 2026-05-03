@@ -14,4 +14,4 @@
 | MR | [HuggingFace](https://huggingface.co/datasets/sh0416/mr) |
 | SST-5 | [HuggingFace](https://huggingface.co/datasets/SetFit/sst5) |
 | SST-2 | [HuggingFace](https://huggingface.co/datasets/glue/viewer/sst2) |
-| Subj | [Cornell](https://www.cs.cornell.edu/people/pabo/movie-review-data/) |
+| Subj | [HuggingFace](https://huggingface.co/datasets/SetFit/subj) |

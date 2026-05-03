@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--checkpoint", required=True, help="LM checkpoint to initialize the 46M backbone")
     parser.add_argument("--output_dir", default="results/nlu_checkpoints/subj_46m")
     parser.add_argument("--ctx_len", type=int, default=1024)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--save_steps", type=int, default=100,
                         help="Save a resume checkpoint every N steps (0 to disable)")
     args = parser.parse_args()
@@ -35,7 +36,7 @@ def main():
 
     trainer_config = TrainerConfig(
         max_epochs=5,
-        batch_size=32,
+        batch_size=args.batch_size,
         learning_rate=1e-4,
         betas=(0.9, 0.999),
         eps=1e-8,

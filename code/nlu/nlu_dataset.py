@@ -33,13 +33,23 @@ class SST5Dataset(Dataset):
 
 class MRDataset(Dataset):
     def __init__(self, split='train'):
-        if split == 'validation':
-            split = 'test'
-        data = load_dataset("sh0416/mr", split=split)
-        text_key = 'text' if 'text' in data.column_names else data.column_names[0]
-        label_key = 'label' if 'label' in data.column_names else data.column_names[1]
-        self.texts = [x[text_key] for x in data]
-        self.labels = [x[label_key] for x in data]
+        hf_split = 'test' if split == 'validation' else 'train'
+        # sh0416/mr CSVs have no header row; load each file directly with explicit column names
+        data = load_dataset(
+            "csv",
+            data_files=f"hf://datasets/sh0416/mr/{hf_split}.csv",
+            column_names=["text", "label"],
+            header=None,
+            split="train",
+        )
+        self.texts = [x["text"] for x in data]
+        self.labels = [int(x["label"]) for x in data]
+
+        unique = set(self.labels)
+        counts = {v: self.labels.count(v) for v in sorted(unique)}
+        print(f"[MRDataset/{hf_split}] {len(self.texts)} samples, label distribution: {counts}")
+        print(f"  sample[0]: label={self.labels[0]}  text={self.texts[0][:80]!r}")
+        print(f"  sample[1]: label={self.labels[1]}  text={self.texts[1][:80]!r}")
 
     def __len__(self):
         return len(self.texts)
