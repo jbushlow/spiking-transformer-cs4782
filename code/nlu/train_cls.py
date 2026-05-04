@@ -109,11 +109,14 @@ def train(model, train_dataset, val_dataset, trainer_config, device, ctx_len=102
         print(f"Resuming from epoch {start_epoch}, step {start_step}, best_acc={best_acc:.4f}")
     elif latest_path.exists():
         ckpt = torch.load(latest_path, map_location=device)
-        model.load_state_dict(ckpt['model_state_dict'])
-        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
-        start_epoch = ckpt['epoch'] + 1
-        best_acc = ckpt.get('best_acc', -1.0)
-        print(f"Resuming from epoch {start_epoch}, best_acc={best_acc:.4f}")
+        if ckpt['epoch'] < trainer_config.max_epochs:
+            model.load_state_dict(ckpt['model_state_dict'])
+            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            start_epoch = ckpt['epoch'] + 1
+            best_acc = ckpt.get('best_acc', -1.0)
+            print(f"Resuming from epoch {start_epoch}, best_acc={best_acc:.4f}")
+        else:
+            print(f"Found completed run in output dir (epoch {ckpt['epoch']}/{trainer_config.max_epochs}). Starting fresh.")
 
     for epoch in range(start_epoch, trainer_config.max_epochs + 1):
         step_offset = start_step if epoch == start_epoch else 0
