@@ -1,5 +1,6 @@
 import torch
 from pathlib import Path
+import argparse
 
 from config import TrainerConfig, get_spikegpt_46m_config
 from dataset import Enwik8Dataset
@@ -21,6 +22,70 @@ from train import (
     set_seed,
 )
 from utils.checkpoint import load_checkpoint
+
+
+DEFAULT_MAX_TRAIN_STEPS_PER_EPOCH = MAX_TRAIN_STEPS_PER_EPOCH
+
+
+def parse_args_learnable_beta():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--resume",
+        choices=["latest", "none"],
+        default="latest",
+        help="Resume from the newest checkpoint or start from scratch.",
+    )
+    parser.add_argument(
+        "--resume-path",
+        default=None,
+        help="Resume from a specific checkpoint path instead of using --resume latest.",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        default=None,
+        help="Directory where checkpoints are saved and searched.",
+    )
+    parser.add_argument(
+        "--planned-epochs-remaining",
+        type=int,
+        default=25,
+        help="How many more epochs you expect to train from this run. Used to set the LR decay horizon.",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Optional override for the starting learning rate used by the schedule.",
+    )
+    parser.add_argument(
+        "--lr-final",
+        type=float,
+        default=None,
+        help="Optional override for the final learning-rate floor.",
+    )
+    parser.add_argument(
+        "--preserve-lr-schedule",
+        action="store_true",
+        help="When resuming, reuse learning-rate schedule parameters saved in the checkpoint.",
+    )
+    parser.add_argument(
+        "--constant-lr",
+        action="store_true",
+        help="Disable cosine LR decay and keep the learning rate constant.",
+    )
+    parser.add_argument(
+        "--max-train-steps-per-epoch",
+        type=int,
+        default=DEFAULT_MAX_TRAIN_STEPS_PER_EPOCH,
+        help="Maximum number of training batches per epoch.",
+    )
+    parser.add_argument(
+        "--log-every-steps",
+        type=int,
+        default=None,
+        help="Optional override for training loss/beta logging frequency.",
+    )
+    return parser.parse_args()
 
 
 def collect_beta_diagnostics(model):
@@ -129,9 +194,19 @@ def restore_training_state_learnable_beta(checkpoint, model, optimizer, device):
     return start_epoch, global_step, tokens_seen, saved_trainer_config
 
 
-def main():
-    args = parse_args()
+def infer_legacy_final_tokens(saved_trainer_config, model_config):
+    max_epochs = saved_trainer_config.get("max_epochs")
+    epoch_length_fixed = saved_trainer_config.get("epoch_length_fixed")
+    if max_epochs is None or epoch_length_fixed is None:
+        return None
+    return int(max_epochs) * int(epoch_length_fixed) * model_config.ctx_len
 
+
+def main():
+    args = parse_args_learnable_beta()
+
+    project_root = Path(__file__).resolve().parent.parent
+    default_checkpoint_dir = project_root / "results" / "checkpoints_learnable_beta"
     model_config = get_spikegpt_46m_config()
     trainer_config = TrainerConfig(
         max_epochs=1000,
@@ -140,7 +215,7 @@ def main():
         log_every=50,
         keep_last_epoch_checkpoints=2,
         keep_last_step_checkpoints=1,
-        epoch_save_path="results/checkpoints_learnable_beta",
+        epoch_save_path=str(default_checkpoint_dir),
     )
 
     if args.checkpoint_dir is not None:
@@ -150,13 +225,17 @@ def main():
     trainer_config.auto_resume = args.resume == "latest"
     trainer_config.warmup_tokens = 0
     trainer_config.schedule_start_tokens = 0
+    if args.constant_lr:
+        trainer_config.lr_decay = False
+    if args.log_every_steps is not None:
+        trainer_config.log_every = args.log_every_steps
 
     set_seed(trainer_config.seed)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("using device:", device)
 
-    data_dir = Path(__file__).resolve().parent.parent / "data" / "enwik8_split"
+    data_dir = project_root / "data" / "enwik8_split"
     train_dataset = Enwik8Dataset(data_dir / "train.txt", model_config.ctx_len)
     val_dataset = Enwik8Dataset(data_dir / "valid.txt", model_config.ctx_len)
 
@@ -186,6 +265,7 @@ def main():
 
     checkpoint_dir = Path(trainer_config.epoch_save_path)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    print(f"saving checkpoints to: {checkpoint_dir}")
 
     checkpoint_path = get_checkpoint_to_resume(args, trainer_config)
     start_epoch = 0
@@ -211,6 +291,7 @@ def main():
         saved_final_tokens = saved_trainer_config.get("final_tokens")
         saved_warmup_tokens = saved_trainer_config.get("warmup_tokens")
         saved_schedule_start_tokens = saved_trainer_config.get("schedule_start_tokens")
+        saved_step_checkpoint_every = saved_trainer_config.get("step_checkpoint_every")
 
         if saved_learning_rate is not None:
             trainer_config.learning_rate = saved_learning_rate
@@ -220,6 +301,8 @@ def main():
             trainer_config.warmup_tokens = saved_warmup_tokens
         if saved_schedule_start_tokens is not None:
             trainer_config.schedule_start_tokens = saved_schedule_start_tokens
+        if saved_step_checkpoint_every is not None:
+            trainer_config.step_checkpoint_every = saved_step_checkpoint_every
         if saved_final_tokens is not None:
             trainer_config.final_tokens = saved_final_tokens
             print(
@@ -228,17 +311,28 @@ def main():
                 f"schedule_start_tokens={trainer_config.schedule_start_tokens}, "
                 f"final_tokens={trainer_config.final_tokens}"
             )
+        else:
+            inferred_final_tokens = infer_legacy_final_tokens(saved_trainer_config, model_config)
+            if inferred_final_tokens is not None:
+                trainer_config.final_tokens = inferred_final_tokens
+                print(
+                    f"preserving inferred legacy LR horizon: learning_rate={trainer_config.learning_rate:.6e}, "
+                    f"lr_final={trainer_config.lr_final:.6e}, "
+                    f"schedule_start_tokens={trainer_config.schedule_start_tokens}, "
+                    f"final_tokens={trainer_config.final_tokens}"
+                )
 
     if args.learning_rate is not None:
         trainer_config.learning_rate = args.learning_rate
     if args.lr_final is not None:
         trainer_config.lr_final = args.lr_final
 
-    tokens_per_epoch = MAX_TRAIN_STEPS_PER_EPOCH * trainer_config.batch_size * model_config.ctx_len
+    max_train_steps_per_epoch = args.max_train_steps_per_epoch
+    tokens_per_epoch = max_train_steps_per_epoch * trainer_config.batch_size * model_config.ctx_len
     if not (
         args.preserve_lr_schedule
         and saved_trainer_config
-        and saved_trainer_config.get("final_tokens") is not None
+        and getattr(trainer_config, "final_tokens", None) is not None
     ):
         trainer_config.schedule_start_tokens = tokens_seen
         trainer_config.final_tokens = tokens_seen + args.planned_epochs_remaining * tokens_per_epoch
@@ -287,7 +381,7 @@ def main():
 
             if (
                 total_batches % trainer_config.step_checkpoint_every == 0
-                and total_batches < MAX_TRAIN_STEPS_PER_EPOCH
+                and total_batches < max_train_steps_per_epoch
             ):
                 ckpt_path = checkpoint_dir / f"epoch_{epoch + 1}_step_{total_batches}.pt"
                 save_checkpoint(
@@ -315,7 +409,7 @@ def main():
                     keep_last_step_checkpoints=trainer_config.keep_last_step_checkpoints,
                 )
 
-            if total_batches >= MAX_TRAIN_STEPS_PER_EPOCH:
+            if total_batches >= max_train_steps_per_epoch:
                 break
 
         train_loss = total_loss / max(total_batches, 1)
