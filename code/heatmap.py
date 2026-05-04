@@ -287,7 +287,7 @@ def save_activity_comparison_plot(prompt_rows, prompt, output_path, dpi):
     )
     ax.set_title(f"Spike Activity vs Dense Baseline | {prompt}")
     ax.set_xlabel("Layer")
-    ax.set_ylabel("Active fraction")
+    ax.set_ylabel("Fraction of active outputs")
     ax.set_ylim(0.0, 1.05)
     ax.grid(alpha=0.25)
     ax.legend()
