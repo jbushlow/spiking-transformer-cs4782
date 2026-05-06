@@ -1,5 +1,5 @@
-prompt: Hello, world
-bytes: 12
+prompt: Hello, world!
+bytes: 13
 timestep,byte,display,is_punctuation
 0,72,H,0
 1,101,e,0
@@ -13,3 +13,4 @@ timestep,byte,display,is_punctuation
 9,114,r,0
 10,108,l,0
 11,100,d,0
+12,33,!,1
