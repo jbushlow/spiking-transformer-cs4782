@@ -1,7 +1,8 @@
 import os
 import matplotlib.pyplot as plt
 
-save_dir = "learnable_b_results"
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+save_dir = os.path.join(project_root, "results", "learnable_b_results")
 os.makedirs(save_dir, exist_ok=True)
 
 # -------------------------

@@ -1,7 +1,8 @@
 import os
 import matplotlib.pyplot as plt
 
-save_dir = "learnable_beta_results_epoch197"
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+save_dir = os.path.join(project_root, "results", "learnable_beta_results_epoch197")
 os.makedirs(save_dir, exist_ok=True)
 
 # Compare only completed epochs available in BOTH runs
