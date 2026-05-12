@@ -1,68 +1,117 @@
-# spiking-transformer-cs4782
-Spiking transformer, a reimplementation of SpikeGPT (https://arxiv.org/abs/2302.13939) submitted as a final project for Cornell CS 4782 Spring 2026
+# SpikeGPT Reimplementation
 
-FINISH THIS README LATER
+Reimplementation of **SpikeGPT: Generative Pre-trained Language Model with Spiking Neural Networks** for the Cornell CS 4782 final project. This repository studies whether a spiking language model can preserve useful language understanding and generation behavior while sharply reducing the energy cost of standard transformer-style computation.
 
-Instructions: 
+## Introduction
 
-The purpose of the README is to provide a TLDR snapshot of your work targeted towards anyone landing
-on your GitHub Repo. This is NOT A report! You can use the sample README here for reference.
-Note that most of the content can be copied over concisely from your final report. Limit each section to 1-2
-lines/figures. Your README should include the following sections:
-1. Introduction
-This repository contains our reimplementation of SpikeGPT , a spiking neural network (SNN) language model designed to reduce the energy cost of transformer-based LLMs.
+Large language models are powerful, but their dense matrix multiplications make training and inference expensive. SpikeGPT replaces standard transformer components with spiking neural network mechanisms built around Leaky Integrate-and-Fire neurons, trading multiply-accumulate-heavy computation for sparse spike-driven updates that are far more energy-efficient.
 
-SpikeGPT replaces expensive transformer self-attention operations with spiking recurrent mechanisms inspired by biological neurons, enabling significantly lower energy consumption while maintaining competitive language modeling performance.
-2. Chosen Result
-We reproduced the 46M parameter SpikeGPT model trained on the Enwik8 dataset and evaluated it on both:
+## Chosen Result
 
-- Natural Language Generation (NLG)
-- Natural Language Understanding (NLU)
+We reimplemented the paper's **46M-parameter SpikeGPT configuration** and trained it on the **Enwik8** byte-level language modeling task. We then evaluated the resulting model on both:
 
-Our primary goal was reproducing the paper’s claim that SpikeGPT can achieve competitive language modeling performance while drastically reducing energy usage compared to standard GPT architectures.
+- **Natural Language Generation (NLG)** with Bits per Character (BPC)
+- **Natural Language Understanding (NLU)** with downstream classification accuracy
 
+Our goal was to test the paper's central claim: that a spiking language model can remain competitive while dramatically lowering projected energy use.
 
-- Include the relevant figure, table, or equation reference from the original paper.
-3. GitHub Contents
-- Make a brief note about the content structure of your project.
-4. Re-implementation Details
-We implemented the SpikeGPT architecture using:
+## GitHub Contents
 
-- PyTorch
-- SpikingJelly
-- Leaky Integrate-and-Fire (LIF) neurons
-- RWKV-style recurrent attention replacement
+- [`code/`](./code) contains the model, training scripts, generation scripts, fine-tuning code, and analysis utilities
+- [`data/`](./data) contains dataset notes and prepared dataset folders such as `enwik8_split`
+- [`results/`](./results) stores checkpoints, tables, beta experiments, and visualization artifacts
+- [`poster/`](./poster) contains the course poster for the project
+- [`colab_train.ipynb`](./colab_train.ipynb) provides a notebook-based training workflow
 
-Key architectural details:
-- 12 spiking blocks
-- 512 embedding dimension
-- ~46M parameters
-- Binary embedding layer with arctangent surrogate gradients
-  
-- Include key details about models, datasets, tools, and evaluation metrics.
-- Mention any challenges or modifications made to the original approach.
-5. Reproduction Steps As meta as this section is, it essentially documents steps someone would need to
-follow to implement your GitHub repo in a local environment.
-- Describe ”how someone using your GitHub can re-implement your re-implementation?”
-- Provide instructions for running your code, including any dependencies, required libraries, and
-command-line arguments.
-- Specify the computational resources (e.g., GPU) needed to reproduce your results.
-6. Results/Insights
-  
-Our reimplementation achieved results comparable to the original paper on most NLU benchmarks while maintaining substantial projected energy savings.
+## Re-implementation Details
 
-Key findings:
-- Competitive NLU performance relative to the SpikeGPT paper
-- Worse BPC than the original implementation, likely due to limited compute budget
-- Estimated ~36.2× lower energy usage than standard GPT-style transformers
-- Learnable β showed promising early-stage training improvements
+The architecture follows the report's core pipeline:
 
-- 
-- Present your re-implementation results as a comparison to the original paper’s findings. Describes
-”what can someone expect as the end-result of using your GitHub repo?”
-7. Conclusion
-This project demonstrates that spiking neural networks can scale to language modeling tasks while significantly reducing computational cost. Although performance still trails traditional transformers, SpikeGPT highlights a promising direction for energy-efficient LLMs and embedded AI systems.
-8. References
+- **Binary embedding layer** to map bytes into spike-friendly representations
+- **12 stacked spiking blocks** with `n_embd = 512`
+- **SpikingRWKV** in place of quadratic self-attention
+- **Spiking RFFN** in place of a standard transformer feed-forward network
+- **Leaky Integrate-and-Fire (LIF) neurons** implemented with SpikingJelly
+
+This design keeps the model recurrent and event-driven, which is where the efficiency gains of SpikeGPT come from.
+
+Pretraining uses **Enwik8** with a next-byte prediction objective. The training stack uses **PyTorch**, **SpikingJelly**, **Adam**, cosine learning-rate decay, and gradient clipping. For NLU evaluation, the project includes fine-tuning and analysis workflows for **SST-2**, **SST-5**, **MR**, and **Subj**.
+
+We also explored one extension beyond the original paper: making the LIF leak parameter **beta** learnable instead of fixed at `0.5`.
+
+## Reproduction Steps
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Train the 46M SpikeGPT model on Enwik8:
+
+```bash
+python code/train.py
+```
+
+Resume training from the latest checkpoint:
+
+```bash
+python code/train.py --resume latest
+```
+
+Generate text from a saved checkpoint:
+
+```bash
+python code/generate.py --checkpoint results/checkpoints/epoch_202.pt --prompt "The future of spiking models is"
+```
+
+Run the learnable-beta training variant:
+
+```bash
+python code/train_learnable_beta.py
+```
+
+Fine-tune on the ASCII art workflow included in this repo:
+
+```bash
+python code/finetune_ascii.py --pretrained results/checkpoints/epoch_202.pt
+```
+
+The full 46M setup is GPU-oriented. Smaller or notebook-friendly experiments can be adapted from the scripts in [`code/config.py`](./code/config.py).
+
+**Google Colab GPU workflow**
+
+This repo also includes [`colab_train.ipynb`](./colab_train.ipynb) for running training on a Google Colab GPU. In Colab, switch the runtime to **GPU**, open the notebook, and run the cells in order. The notebook is set up to mount Google Drive, copy the repo into `/content`, install dependencies, prepare the `enwik8` split, and then launch training from saved checkpoints or from scratch.
+
+**What the main Colab notebook commands do**
+
+- `drive.mount('/content/drive')` connects Colab to Google Drive so checkpoints can persist after the runtime shuts down.
+- `cp -r ... /content/` copies the project from Drive into Colab's faster local workspace before training.
+- `pip install -r requirements.txt` installs the Python dependencies used by the repo.
+- `wget http://mattmahoney.net/dc/enwik8.zip` and `unzip -o enwik8.zip` download the raw Enwik8 dataset.
+- The dataset prep cell splits `enwik8` into `train.txt`, `valid.txt`, and `test.txt` inside `data/enwik8_split/`.
+- The module refresh cell re-imports local project files after code changes so you do not need to restart the notebook every time.
+- The smoke-test cell builds a small SpikeGPT model and runs one forward pass to confirm the dataset, model, and GPU setup are working.
+- `python3 code/train.py --resume latest ...` resumes the main 46M training run from the newest checkpoint on Drive.
+- `python3 code/train.py --resume none ...` starts a fresh pretraining run.
+- `python3 code/train_learnable_beta.py ...` runs the learnable-`beta` extension experiments, either from a chosen checkpoint or from scratch.
+
+## Results/Insights
+
+Our reproduction broadly matched the paper on several NLU benchmarks and preserved the main qualitative result: **SpikeGPT offers a strong energy-efficiency tradeoff even when its language modeling quality trails dense GPT-style models**.
+
+Key takeaways from the report:
+
+- NLU results were generally close to the paper except for a larger gap on **MR**
+- NLG results were weaker than the paper, with higher **BPC**
+- The architecture was estimated to use about **36.2x less energy** than a standard GPT baseline
+- A **learnable beta** showed more promise when introduced earlier in training
+
+## Conclusion
+
+This project reinforced the main lesson of the paper: spiking language models do not yet outperform conventional dense transformers, but they open a compelling path toward lower-power sequence modeling. The drop in performance is real, yet the efficiency gains make SpikeGPT a serious direction for embedded and resource-constrained AI systems.
+
+## References
 
 ```bibtex
 @article{zhu2023spikegpt,
@@ -73,11 +122,9 @@ This project demonstrates that spiking neural networks can scale to language mod
 }
 ```
 
-Additional references:
+- Zhu, R. et al. *SpikeGPT: Generative Pre-trained Language Model with Spiking Neural Networks*. TMLR, 2023. https://arxiv.org/abs/2302.13939
 - Cornell CS 4782 Deep Learning course materials
 
-9. Acknowledgements
+## Acknowledgements
 
-This project was completed as the final project for Cornell CS 4782: Deep Learning (Spring 2026).
-
-We thank the course staff and the authors of SpikeGPT for making their work publicly available.
+SpikeGPT Reimplementation Final Report: Julian Bushlow, Kathy Chen, John Palsberg, and Angelina Zhou.
