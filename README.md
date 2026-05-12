@@ -10,7 +10,7 @@ This repo is our attempt to re-implement **SpikeGPT: Generative Pre-trained Lang
 
 We reimplemented the paper's **46M-parameter SpikeGPT model**, pretrained it on **Enwik8**, and evaluated it on both **NLG** and **NLU** tasks. The result we aimed to reproduce was the paper's main tradeoff: competitive language performance with sharply lower projected energy use.
 
-![NLU benchmark results](./figures/nlu_4.png)
+![NLU benchmark results](./results/figures_for_readme/nlu_4.png)
 
 *Figure 1. NLU benchmark comparison, reflecting the same evaluation setting used to compare our reimplementation against the original SpikeGPT results.*
 
@@ -26,7 +26,7 @@ We reimplemented the paper's **46M-parameter SpikeGPT model**, pretrained it on 
 We implemented SpikeGPT in **PyTorch** and **SpikingJelly** using **binary embeddings**, **12 spiking blocks**, **SpikingRWKV**, **spiking RFFN**, and **LIF neurons**. We matched the paper's 46M setup (`n_embd = 512`, `n_layer = 12`) and also tested a learnable `beta` extension.
 
 <p align="center">
-  <img src="./figures/architecture_3.png" alt="SpikeGPT architecture" width="360" />
+  <img src="./results/figures_for_readme/architecture_3.png" alt="SpikeGPT architecture" width="360" />
 </p>
 
 *Figure 2. SpikeGPT transformer architecture used in our reimplementation, with binary embeddings, stacked spiking blocks, SpikingRWKV, and spiking feed-forward layers.*
@@ -51,8 +51,8 @@ Use a **GPU** to reproduce the 46M model results; local CPU use is mainly practi
 Our results broadly matched the paper on several NLU tasks while underperforming on NLG, especially in **BPC**. Compared with the paper, the key takeaway still held: SpikeGPT trades some accuracy for major efficiency gains, including our estimated **36.2x** lower energy use than a standard GPT baseline.
 
 <p align="center">
-  <img src="./figures/nlg_6.png" alt="NLG BPC comparison" width="48%" />
-  <img src="./figures/beta_7.png" alt="Learnable beta results" width="48%" />
+  <img src="./results/figures_for_readme/nlg_6.png" alt="NLG BPC comparison" width="48%" />
+  <img src="./results/figures_for_readme/beta_7.png" alt="Learnable beta results" width="48%" />
 </p>
 
 *Figure 3. Left: bits-per-character comparison for natural language generation, where our model underperformed the paper but remained competitive with simpler sequence baselines. Right: validation loss after making `beta` learnable from epoch 25, showing the most promising improvement among our extensions.*
