@@ -67,16 +67,7 @@ SpikeGPT does not beat standard dense transformers, but it shows that language m
 
 ## References
 
-```bibtex
-@article{zhu2023spikegpt,
-  title={SpikeGPT: Generative Pre-trained Language Model with Spiking Neural Networks},
-  author={Zhu, Rui-Jie and Zhao, Qihang and Li, Guoqi and Eshraghian, Jason},
-  journal={Transactions on Machine Learning Research},
-  year={2023}
-}
-```
-
-- Zhu, R. et al. *SpikeGPT: Generative Pre-trained Language Model with Spiking Neural Networks*. TMLR, 2023. https://arxiv.org/abs/2302.13939
+- Zhu, R., Zhao, Q., Li, G., and Eshraghian, J. *SpikeGPT: Generative Pre-trained Language Model with Spiking Neural Networks*. Transactions on Machine Learning Research, 2023. https://arxiv.org/abs/2302.13939
 - Cornell CS 4782 Deep Learning course materials
 
 ## Acknowledgements
