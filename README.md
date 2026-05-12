@@ -12,7 +12,7 @@ We reimplemented the paper's **46M-parameter SpikeGPT model**, pretrained it on 
 
 ![NLU benchmark results](./results/figures_for_readme/nlu_4.png)
 
-*Figure 1. NLU benchmark comparison, reflecting the same evaluation setting used to compare our reimplementation against the original SpikeGPT results.*
+*Figure 1. NLU benchmark comparison, matching the paper's benchmark comparison setup and showing our reimplementation against the original SpikeGPT results.*
 
 ## GitHub Contents
 
