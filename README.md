@@ -33,6 +33,8 @@ We implemented SpikeGPT in **PyTorch** and **SpikingJelly** using **binary embed
 
 Pretraining uses **Enwik8** with next-byte prediction, and downstream evaluation uses **SST-2**, **SST-5**, **MR**, and **Subj**. Training uses Adam, cosine decay, and gradient clipping.
 
+We evaluated NLG with **Bits per Character (BPC)** and NLU with **classification accuracy**.
+
 ## Reproduction Steps
 
 Local setup:
@@ -43,6 +45,8 @@ python code/train.py
 python code/train.py --resume latest
 python code/train_learnable_beta.py
 ```
+
+To reproduce our main results, install the dependencies, use the prepared `data/enwik8_split` dataset, run `python code/train.py`, and resume or branch into `python code/train_learnable_beta.py` for the extension experiments.
 
 Use a **GPU** to reproduce the 46M model results; local CPU use is mainly practical for inspection or smaller experiments. For Colab, open [`colab_train.ipynb`](./colab_train.ipynb) with a **GPU** runtime: it mounts Google Drive, prepares `enwik8`, and runs either standard training or the learnable-`beta` variant from checkpoints.
 
