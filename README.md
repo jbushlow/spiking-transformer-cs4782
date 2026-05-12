@@ -19,7 +19,7 @@ We reimplemented the paper's **46M-parameter SpikeGPT model**, pretrained it on 
 - [`code/`](./code): model, training, generation, fine-tuning, and analysis scripts
 - [`data/`](./data): dataset notes and prepared splits
 - [`results/`](./results): checkpoints, tables, and experiment outputs
-- [`colab_train.ipynb`](./colab_train.ipynb): Google Colab training workflow
+- [`code/colab_train.ipynb`](./code/colab_train.ipynb): Google Colab training workflow
 
 ## Re-implementation Details
 
@@ -48,7 +48,7 @@ python code/train_learnable_beta.py
 
 To reproduce our main results, install the dependencies, use the prepared `data/enwik8_split` dataset, run `python code/train.py`, and resume or branch into `python code/train_learnable_beta.py` for the extension experiments.
 
-Use a **GPU** to reproduce the 46M model results; local CPU use is mainly practical for inspection or smaller experiments. For Colab, open [`colab_train.ipynb`](./colab_train.ipynb) with a **GPU** runtime: it mounts Google Drive, prepares `enwik8`, and runs either standard training or the learnable-`beta` variant from checkpoints.
+Use a **GPU** to reproduce the 46M model results; local CPU use is mainly practical for inspection or smaller experiments. For Colab, open [`code/colab_train.ipynb`](./code/colab_train.ipynb) with a **GPU** runtime, move the notebook to the repo root in Colab, and run it from there rather than from inside `code/`. The notebook mounts Google Drive, prepares `enwik8`, and runs either standard training or the learnable-`beta` variant from checkpoints.
 
 ## Results/Insights
 
